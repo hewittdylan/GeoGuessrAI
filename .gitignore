@@ -28,7 +28,7 @@ share/python-wheels/
 MANIFEST
 
 # Environments
-.env
+.env.local
 .venv
 env/
 venv/
@@ -62,3 +62,9 @@ models/
 output/
 logs/
 runs/
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+.vite/
