@@ -98,12 +98,11 @@ export default function Interface() {
       const userDist = haversineDistance(actualLocation.lat, actualLocation.lng, userGuess.lat, userGuess.lng);
       const userScore = calculateScore(userDist);
 
-      // 2. Simulación de IA
-      // TODO: Implementar IA real
-      // Asumimos que la IA adivina cerca del objetivo con algún error
-      const errorFactor = Math.random() * 0.5;
-      const aiLat = actualLocation.lat + (Math.random() > 0.5 ? 1 : -1) * errorFactor;
-      const aiLng = actualLocation.lng + (Math.random() > 0.5 ? 1 : -1) * errorFactor;
+      // 2. Simulación de IA (200-300km de fallo)
+      const latDrift = (Math.random() - 0.5) * 4;
+      const lngDrift = (Math.random() - 0.5) * 4;
+      const aiLat = actualLocation.lat + latDrift;
+      const aiLng = actualLocation.lng + lngDrift;
 
       const aiDist = haversineDistance(actualLocation.lat, actualLocation.lng, aiLat, aiLng);
       const aiScore = calculateScore(aiDist);
@@ -183,6 +182,7 @@ export default function Interface() {
         isSubmitting={isSubmitting}
         onSubmit={submitGuess}
         showResult={!!result}
+        result={result}
       />
 
     </div>
