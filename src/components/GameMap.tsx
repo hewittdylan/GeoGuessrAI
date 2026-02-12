@@ -32,6 +32,41 @@ const GameMap: React.FC<GameMapProps> = ({
 }) => {
     const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // World center
 
+    // Custom SVG Icons - Defined inside component to ensure google.maps is available
+    const mapIcons = useMemo(() => {
+        if (!window.google) return null; // Guard clause
+
+        return {
+            actual: {
+                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#000000" stroke="#000000" stroke-width="1.5">
+            <path d="M5 21h2v-8h11l-3-4 3-4H7V3H5v18z" />
+        </svg>`),
+                scaledSize: { width: 32, height: 32 },
+                anchor: { x: 6, y: 21 }
+            },
+            user: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#3b82f6", // Blue-500
+                fillOpacity: 1,
+                strokeColor: "#ffffff",
+                strokeWeight: 3,
+            },
+            ai: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#a855f7", // Purple-500
+                fillOpacity: 1,
+                strokeColor: "#ffffff",
+                strokeWeight: 3,
+            }
+        };
+    }, []);
+
+    // If mapIcons aren't loaded yet (because google api isn't ready), render nothing or simple map
+    if (!mapIcons) return null;
+
     return (
         <div
             className={`
@@ -47,61 +82,81 @@ const GameMap: React.FC<GameMapProps> = ({
                 <GoogleMap
                     mapContainerStyle={{ width: '100%', height: '100%' }}
                     center={result ? result.actual : defaultCenter}
-                    zoom={result ? 3 : 2}
+                    zoom={result ? 4 : 2}
                     options={interactiveMapOptions}
                     onClick={!showResult ? onMapClick : undefined}
                     onTilesLoaded={onTilesLoaded}
                 >
-                    {/* User's Guess Marker */}
+                    {/* User's Guess Marker (During Game) */}
                     {userGuess && !result && (
                         <Marker
                             position={userGuess}
-                            icon={{
-                                path: google.maps.SymbolPath.CIRCLE,
-                                scale: 7,
-                                fillColor: "#3b82f6", // Blue
-                                fillOpacity: 1,
-                                strokeColor: "#ffffff",
-                                strokeWeight: 2,
-                            }}
+                            icon={mapIcons.user}
                         />
                     )}
 
                     {/* Result Markers */}
                     {result && (
                         <>
-                            {/* Actual Location */}
+                            {/* Actual Location - Flag */}
                             <Marker
                                 position={result.actual}
-                                icon={{
-                                    url: "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
-                                }}
+                                icon={mapIcons.actual as any}
+                                zIndex={100}
                             />
 
                             {/* User Guess */}
                             <Marker
                                 position={result.user}
-                                icon={{
-                                    url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png"
-                                }}
+                                icon={mapIcons.user}
+                                zIndex={90}
                             />
 
                             {/* AI Guess */}
                             <Marker
                                 position={result.ai}
-                                icon={{
-                                    url: "https://maps.google.com/mapfiles/ms/icons/purple-dot.png"
-                                }}
+                                icon={mapIcons.ai}
+                                zIndex={90}
                             />
 
                             {/* Lines */}
                             <Polyline
                                 path={[result.actual, result.user]}
-                                options={{ strokeColor: "#3b82f6", strokeOpacity: 0.8, strokeWeight: 2, geodesic: true }}
+                                options={{
+                                    strokeColor: "#3b82f6",
+                                    strokeOpacity: 0,
+                                    strokeWeight: 0,
+                                    geodesic: true,
+                                    icons: [{
+                                        icon: {
+                                            path: 'M 0,-1 0,1',
+                                            strokeOpacity: 1,
+                                            scale: 3,
+                                            strokeColor: "#3b82f6"
+                                        },
+                                        offset: '0',
+                                        repeat: '20px'
+                                    }]
+                                }}
                             />
                             <Polyline
                                 path={[result.actual, result.ai]}
-                                options={{ strokeColor: "#a855f7", strokeOpacity: 0.8, strokeWeight: 2, geodesic: true }}
+                                options={{
+                                    strokeColor: "#a855f7",
+                                    strokeOpacity: 0,
+                                    strokeWeight: 0,
+                                    geodesic: true,
+                                    icons: [{
+                                        icon: {
+                                            path: 'M 0,-1 0,1',
+                                            strokeOpacity: 1,
+                                            scale: 3,
+                                            strokeColor: "#a855f7"
+                                        },
+                                        offset: '0',
+                                        repeat: '20px'
+                                    }]
+                                }}
                             />
                         </>
                     )}
