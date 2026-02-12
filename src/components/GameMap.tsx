@@ -110,7 +110,7 @@ const GameMap: React.FC<GameMapProps> = ({
                 {/* Hover overlay hint (disappears on hover) */}
                 {!showResult && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20 group-hover:opacity-0 transition-opacity duration-300">
-                        <span className="text-white/80 font-bold text-sm bg-black/50 px-2 py-1 rounded backdrop-blur-md">MAP</span>
+                        <span className="text-white/80 font-bold text-sm bg-black/50 px-2 py-1 rounded backdrop-blur-md">MAPA</span>
                     </div>
                 )}
 
@@ -127,7 +127,7 @@ const GameMap: React.FC<GameMapProps> = ({
                                     : 'bg-green-500 text-white hover:bg-green-400 hover:scale-105 active:scale-95'}
                 `}
                         >
-                            {isSubmitting ? '...' : 'GUESS'}
+                            {isSubmitting ? '...' : 'ADIVINAR'}
                         </button>
                     </div>
                 )}
