@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, useSpring, useTransform, animate } from 'framer-motion';
+import { motion, useSpring, useTransform } from 'framer-motion';
 
 interface HealthBarProps {
     current: number;

@@ -85,7 +85,13 @@ const GameMap: React.FC<GameMapProps> = ({
         if (showResult && result && mapRef.current) {
             const bounds = new google.maps.LatLngBounds();
             bounds.extend(result.actual);
-            bounds.extend(result.player1);
+
+            // Sólo extender los bordes si jugador 1 ha hecho suposición (no es null por tiempo)
+            if (result.player1 && result.player1.lat && result.player1.lng) {
+                bounds.extend(result.player1);
+            }
+
+            // Asumimos que jugador 2 siempre escoge suposición y no se le acaba el tiempo
             bounds.extend(result.player2);
 
             // Esperar a que termine la transición CSS (500ms) antes de ajustar
@@ -145,12 +151,14 @@ const GameMap: React.FC<GameMapProps> = ({
                                 zIndex={100}
                             />
 
-                            {/* Suposición del Jugador 1 */}
-                            <Marker
-                                position={result.player1}
-                                icon={mapIcons.player1}
-                                zIndex={90}
-                            />
+                            {/* Suposición del Jugador 1, solo si existe */}
+                            {result.player1 && result.player1.lat && result.player1.lng && (
+                                <Marker
+                                    position={result.player1}
+                                    icon={mapIcons.player1}
+                                    zIndex={90}
+                                />
+                            )}
 
                             {/* Suposición del Jugador 2 */}
                             <Marker
@@ -160,25 +168,28 @@ const GameMap: React.FC<GameMapProps> = ({
                             />
 
                             {/* Líneas */}
-                            <Polyline
-                                path={[result.actual, result.player1]}
-                                options={{
-                                    strokeColor: "#f59e0b",
-                                    strokeOpacity: 0,
-                                    strokeWeight: 0,
-                                    geodesic: true,
-                                    icons: [{
-                                        icon: {
-                                            path: 'M 0,-1 0,1',
-                                            strokeOpacity: 1,
-                                            scale: 3,
-                                            strokeColor: "#f59e0b"
-                                        },
-                                        offset: '0',
-                                        repeat: '20px'
-                                    }]
-                                }}
-                            />
+                            {result.player1 && result.player1.lat && result.player1.lng && (
+                                <Polyline
+                                    path={[result.actual, result.player1]}
+                                    options={{
+                                        strokeColor: "#f59e0b",
+                                        strokeOpacity: 0,
+                                        strokeWeight: 0,
+                                        geodesic: true,
+                                        icons: [{
+                                            icon: {
+                                                path: 'M 0,-1 0,1',
+                                                strokeOpacity: 1,
+                                                scale: 3,
+                                                strokeColor: "#f59e0b"
+                                            },
+                                            offset: '0',
+                                            repeat: '20px'
+                                        }]
+                                    }}
+                                />
+                            )}
+
                             <Polyline
                                 path={[result.actual, result.player2]}
                                 options={{
