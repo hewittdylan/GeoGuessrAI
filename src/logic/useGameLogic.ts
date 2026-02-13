@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { haversineDistance, calculateScore } from '../utils/gameLogic';
 
 interface GameState {
@@ -9,6 +9,10 @@ interface GameState {
     isSubmitting: boolean;
     loadingLocation: boolean;
     tilesLoaded: boolean;
+    player1TotalScore: number;
+    player2TotalScore: number;
+    timeLeft: number;
+    matchWinner: 'player1' | 'player2' | null;
 }
 
 interface UseGameLogicReturn extends GameState {
@@ -19,6 +23,9 @@ interface UseGameLogicReturn extends GameState {
     handleNextRound: () => void;
 }
 
+const STARTING_HEALTH = 10000;
+const ROUND_TIME = 120;
+
 export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs_ai' = 'human_vs_ai'): UseGameLogicReturn => {
     // Estado del juego
     const [actualLocation, setActualLocation] = useState<google.maps.LatLngLiteral | null>(null);
@@ -28,6 +35,15 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadingLocation, setLoadingLocation] = useState(true);
     const [tilesLoaded, setTilesLoaded] = useState(false);
+
+    // Estado competitivo
+    const [player1TotalScore, setPlayer1TotalScore] = useState(STARTING_HEALTH);
+    const [player2TotalScore, setPlayer2TotalScore] = useState(STARTING_HEALTH);
+    const [timeLeft, setTimeLeft] = useState(ROUND_TIME);
+    const [matchWinner, setMatchWinner] = useState<'player1' | 'player2' | null>(null);
+
+    // Referencias para el temporizador
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const findRandomLocation = useCallback(() => {
         if (!isLoaded || !window.google) return;
@@ -54,6 +70,8 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
                     });
                     setPanoId(data.location.pano || '');
                     setLoadingLocation(false);
+                    // Reiniciar temporizador al encontrar nueva ubicación
+                    setTimeLeft(ROUND_TIME);
                 } else {
                     tryLocation();
                 }
@@ -70,20 +88,48 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         }
     }, [isLoaded, actualLocation, findRandomLocation]);
 
+    // Efecto del Temporizador
+    useEffect(() => {
+        if (matchWinner || result || loadingLocation || isSubmitting) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            return;
+        }
+
+        timerRef.current = setInterval(() => {
+            setTimeLeft((prev) => {
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    // Forzar envío cuando el tiempo se agota
+                    submitGuess(true);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, [matchWinner, result, loadingLocation, isSubmitting]); // submitGuess es stable, pero lo quitamos de deptos para evitar loops si cambia
+
     const handleMapClick = useCallback((e: google.maps.MapMouseEvent) => {
-        if (result || gameMode === 'ai_vs_ai') return;
+        if (result || gameMode === 'ai_vs_ai' || matchWinner) return;
         if (e.latLng) {
             setPlayer1Guess({ lat: e.latLng.lat(), lng: e.latLng.lng() });
         }
-    }, [result, gameMode]);
+    }, [result, gameMode, matchWinner]);
 
-    const submitGuess = async () => {
+    // Modificamos submitGuess para aceptar un flag de "forzado por tiempo"
+    const submitGuess = async (forceTimeOut: boolean = false) => {
         if (!actualLocation) return;
-        // En human_vs_ai, necesitamos un player1Guess. En ai_vs_ai, lo generamos.
-        if (gameMode === 'human_vs_ai' && !player1Guess) return;
+
+        // Si no es forzado y no hay guess en modo humano, return
+        if (!forceTimeOut && gameMode === 'human_vs_ai' && !player1Guess) return;
 
         setIsSubmitting(true);
+        if (timerRef.current) clearInterval(timerRef.current);
 
+        // Pequeño delay para simular proceso y UX
         setTimeout(() => {
             let finalPlayer1Guess = player1Guess;
 
@@ -97,13 +143,22 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
                     lng: actualLocation.lng + lngDrift1
                 };
                 setPlayer1Guess(finalPlayer1Guess);
+            } else if (forceTimeOut && !player1Guess) {
+                // Si se acabó el tiempo y no adivinó, null (tratado como 0 puntos)
+                finalPlayer1Guess = null;
             }
 
-            if (!finalPlayer1Guess) return; // No debería pasar
+            // Calcular puntuación Jugador 1
+            let player1Score = 0;
+            let player1Dist = 0;
 
-            // Calcular la puntuación del Jugador 1
-            const player1Dist = haversineDistance(actualLocation.lat, actualLocation.lng, finalPlayer1Guess.lat, finalPlayer1Guess.lng);
-            const player1Score = calculateScore(player1Dist);
+            if (finalPlayer1Guess) {
+                player1Dist = haversineDistance(actualLocation.lat, actualLocation.lng, finalPlayer1Guess.lat, finalPlayer1Guess.lng);
+                player1Score = calculateScore(player1Dist);
+            } else {
+                // Penalización por no adivinar: 0 puntos
+                player1Score = 0;
+            }
 
             // 2. Lógica para el Jugador 2
             const latDrift = (Math.random() - 0.5) * 4;
@@ -114,16 +169,56 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             const player2Dist = haversineDistance(actualLocation.lat, actualLocation.lng, aiLat, aiLng);
             const player2Score = calculateScore(player2Dist);
 
-            // 3. Determinar el ganador
-            let winner = "Empate";
-            if (player1Score > player2Score) winner = gameMode === 'ai_vs_ai' ? "AI 1" : "Usuario";
-            else if (player2Score > player1Score) winner = gameMode === 'ai_vs_ai' ? "AI 2" : "IA";
+            // 3. Determinar el ganador de la ronda y daño
+            let roundWinner = "Empate";
+            let damage = Math.abs(player1Score - player2Score);
+
+            let newP1Total = player1TotalScore;
+            let newP2Total = player2TotalScore;
+
+            if (player1Score > player2Score) {
+                roundWinner = gameMode === 'ai_vs_ai' ? "AI 1" : "Usuario";
+                newP2Total = Math.max(0, player2TotalScore - damage);
+            } else if (player2Score > player1Score) {
+                roundWinner = gameMode === 'ai_vs_ai' ? "AI 2" : "IA";
+                newP1Total = Math.max(0, player1TotalScore - damage);
+            } else {
+                // En empate exacto, nadie recibe daño
+                damage = 0;
+            }
+
+            // Actualizar totales
+            setPlayer1TotalScore(newP1Total);
+            setPlayer2TotalScore(newP2Total);
+
+            // Verificar fin de partida
+            let finalMatchWinner: 'player1' | 'player2' | null = null;
+            if (newP1Total <= 0) finalMatchWinner = 'player2';
+            if (newP2Total <= 0) finalMatchWinner = 'player1';
+
+            if (finalMatchWinner) {
+                setMatchWinner(finalMatchWinner);
+            }
 
             setResult({
-                round_winner: winner,
-                player1: { score: player1Score, distance_km: player1Dist.toFixed(2), lat: finalPlayer1Guess.lat, lng: finalPlayer1Guess.lng },
-                player2: { score: player2Score, distance_km: player2Dist.toFixed(2), lat: aiLat, lng: aiLng },
-                actual: actualLocation
+                round_winner: roundWinner,
+                player1: {
+                    score: player1Score,
+                    distance_km: finalPlayer1Guess ? player1Dist.toFixed(2) : "N/A",
+                    lat: finalPlayer1Guess?.lat,
+                    lng: finalPlayer1Guess?.lng
+                },
+                player2: {
+                    score: player2Score,
+                    distance_km: player2Dist.toFixed(2),
+                    lat: aiLat,
+                    lng: aiLng
+                },
+                actual: actualLocation,
+                damage: damage, // Para mostrar cuánto se restó
+                p1Total: newP1Total,
+                p2Total: newP2Total,
+                matchOver: !!finalMatchWinner
             });
 
             setIsSubmitting(false);
@@ -131,9 +226,16 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
     };
 
     const handleNextRound = () => {
+        if (matchWinner) {
+            setMatchWinner(null);
+            setPlayer1TotalScore(STARTING_HEALTH);
+            setPlayer2TotalScore(STARTING_HEALTH);
+        }
+
         setResult(null);
         setPlayer1Guess(null);
         setTilesLoaded(false);
+        // El timer se reiniciará cuando findRandomLocation encuentre una ubicación
         findRandomLocation();
     };
 
@@ -148,7 +250,11 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         setTilesLoaded,
         setPlayer1Guess,
         handleMapClick,
-        submitGuess,
-        handleNextRound
+        submitGuess: () => submitGuess(false),
+        handleNextRound,
+        player1TotalScore,
+        player2TotalScore,
+        timeLeft,
+        matchWinner
     };
 };
