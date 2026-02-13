@@ -69,6 +69,42 @@ const GameMap: React.FC<GameMapProps> = ({
     // Si los iconos no se han cargado (porque la API no está lista), no renderizar nada
     if (!mapIcons) return null;
 
+    // Referencia al objeto mapa
+    const mapRef = React.useRef<google.maps.Map | null>(null);
+
+    const onLoad = React.useCallback((map: google.maps.Map) => {
+        mapRef.current = map;
+    }, []);
+
+    const onUnmount = React.useCallback(() => {
+        mapRef.current = null;
+    }, []);
+
+    // Efecto para hacer auto-zoom con los resultados
+    React.useEffect(() => {
+        if (showResult && result && mapRef.current) {
+            const bounds = new google.maps.LatLngBounds();
+            bounds.extend(result.actual);
+            bounds.extend(result.player1);
+            bounds.extend(result.player2);
+
+            // Esperar a que termine la transición CSS (500ms) antes de ajustar
+            const timer = setTimeout(() => {
+                if (mapRef.current) {
+                    // Ajustar el mapa para que se vean todos los puntos
+                    mapRef.current.fitBounds(bounds, {
+                        top: 50,
+                        right: 50,
+                        bottom: 350, // Dejar espacio al ResultOverlay
+                        left: 50,
+                    });
+                }
+            }, 500); // 500ms para asegurar que la animación terminó
+
+            return () => clearTimeout(timer);
+        }
+    }, [showResult, result]);
+
     return (
         <div
             className={`
@@ -84,10 +120,12 @@ const GameMap: React.FC<GameMapProps> = ({
                 <GoogleMap
                     mapContainerStyle={{ width: '100%', height: '100%' }}
                     center={result ? result.actual : defaultCenter}
-                    zoom={result ? 4 : 2}
+                    zoom={2} // Zoom inicial por defecto, luego fitBounds lo anula
                     options={interactiveMapOptions}
                     onClick={!showResult && gameMode === 'human_vs_ai' ? onMapClick : undefined}
                     onTilesLoaded={onTilesLoaded}
+                    onLoad={onLoad}
+                    onUnmount={onUnmount}
                 >
                     {/* Marcador de suposición del Jugador 1 durante la ronda */}
                     {player1Guess && !result && (
