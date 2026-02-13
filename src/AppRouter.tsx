@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MainMenu from './pages/MainMenu';
 import GameMatch from './pages/GameMatch';

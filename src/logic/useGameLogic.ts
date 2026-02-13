@@ -4,7 +4,7 @@ import { haversineDistance, calculateScore } from '../utils/gameLogic';
 interface GameState {
     actualLocation: google.maps.LatLngLiteral | null;
     panoId: string;
-    userGuess: google.maps.LatLngLiteral | null;
+    player1Guess: google.maps.LatLngLiteral | null;
     result: any | null;
     isSubmitting: boolean;
     loadingLocation: boolean;
@@ -13,17 +13,17 @@ interface GameState {
 
 interface UseGameLogicReturn extends GameState {
     setTilesLoaded: (loaded: boolean) => void;
-    setUserGuess: (guess: google.maps.LatLngLiteral | null) => void;
+    setPlayer1Guess: (guess: google.maps.LatLngLiteral | null) => void;
     handleMapClick: (e: google.maps.MapMouseEvent) => void;
     submitGuess: () => void;
     handleNextRound: () => void;
 }
 
-export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
+export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs_ai' = 'human_vs_ai'): UseGameLogicReturn => {
     // Estado del juego
     const [actualLocation, setActualLocation] = useState<google.maps.LatLngLiteral | null>(null);
     const [panoId, setPanoId] = useState('');
-    const [userGuess, setUserGuess] = useState<google.maps.LatLngLiteral | null>(null);
+    const [player1Guess, setPlayer1Guess] = useState<google.maps.LatLngLiteral | null>(null);
     const [result, setResult] = useState<any | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadingLocation, setLoadingLocation] = useState(true);
@@ -71,39 +71,58 @@ export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
     }, [isLoaded, actualLocation, findRandomLocation]);
 
     const handleMapClick = useCallback((e: google.maps.MapMouseEvent) => {
-        if (result) return;
+        if (result || gameMode === 'ai_vs_ai') return;
         if (e.latLng) {
-            setUserGuess({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+            setPlayer1Guess({ lat: e.latLng.lat(), lng: e.latLng.lng() });
         }
-    }, [result]);
+    }, [result, gameMode]);
 
     const submitGuess = async () => {
-        if (!userGuess || !actualLocation) return;
+        if (!actualLocation) return;
+        // En human_vs_ai, necesitamos un player1Guess. En ai_vs_ai, lo generamos.
+        if (gameMode === 'human_vs_ai' && !player1Guess) return;
+
         setIsSubmitting(true);
 
         setTimeout(() => {
-            // 1. Suposición del usuario
-            const userDist = haversineDistance(actualLocation.lat, actualLocation.lng, userGuess.lat, userGuess.lng);
-            const userScore = calculateScore(userDist);
+            let finalPlayer1Guess = player1Guess;
 
-            // 2. Simulación de IA
+            // 1. Lógica para el Jugador 1
+            if (gameMode === 'ai_vs_ai') {
+                // Simular la suposición de la IA 1
+                const latDrift1 = (Math.random() - 0.5) * 4;
+                const lngDrift1 = (Math.random() - 0.5) * 4;
+                finalPlayer1Guess = {
+                    lat: actualLocation.lat + latDrift1,
+                    lng: actualLocation.lng + lngDrift1
+                };
+                setPlayer1Guess(finalPlayer1Guess);
+            }
+
+            if (!finalPlayer1Guess) return; // No debería pasar
+
+            // Calcular la puntuación del Jugador 1
+            const player1Dist = haversineDistance(actualLocation.lat, actualLocation.lng, finalPlayer1Guess.lat, finalPlayer1Guess.lng);
+            const player1Score = calculateScore(player1Dist);
+
+            // 2. Lógica para el Jugador 2
             const latDrift = (Math.random() - 0.5) * 4;
             const lngDrift = (Math.random() - 0.5) * 4;
             const aiLat = actualLocation.lat + latDrift;
             const aiLng = actualLocation.lng + lngDrift;
 
-            const aiDist = haversineDistance(actualLocation.lat, actualLocation.lng, aiLat, aiLng);
-            const aiScore = calculateScore(aiDist);
+            const player2Dist = haversineDistance(actualLocation.lat, actualLocation.lng, aiLat, aiLng);
+            const player2Score = calculateScore(player2Dist);
 
             // 3. Determinar el ganador
             let winner = "Empate";
-            if (userScore > aiScore) winner = "Usuario";
-            else if (aiScore > userScore) winner = "IA";
+            if (player1Score > player2Score) winner = gameMode === 'ai_vs_ai' ? "AI 1" : "Usuario";
+            else if (player2Score > player1Score) winner = gameMode === 'ai_vs_ai' ? "AI 2" : "IA";
 
             setResult({
                 round_winner: winner,
-                user: { score: userScore, distance_km: userDist.toFixed(2), lat: userGuess.lat, lng: userGuess.lng },
-                ai: { score: aiScore, distance_km: aiDist.toFixed(2), lat: aiLat, lng: aiLng },
+                player1: { score: player1Score, distance_km: player1Dist.toFixed(2), lat: finalPlayer1Guess.lat, lng: finalPlayer1Guess.lng },
+                player2: { score: player2Score, distance_km: player2Dist.toFixed(2), lat: aiLat, lng: aiLng },
                 actual: actualLocation
             });
 
@@ -113,7 +132,7 @@ export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
 
     const handleNextRound = () => {
         setResult(null);
-        setUserGuess(null);
+        setPlayer1Guess(null);
         setTilesLoaded(false);
         findRandomLocation();
     };
@@ -121,13 +140,13 @@ export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
     return {
         actualLocation,
         panoId,
-        userGuess,
+        player1Guess,
         result,
         isSubmitting,
         loadingLocation,
         tilesLoaded,
         setTilesLoaded,
-        setUserGuess,
+        setPlayer1Guess,
         handleMapClick,
         submitGuess,
         handleNextRound

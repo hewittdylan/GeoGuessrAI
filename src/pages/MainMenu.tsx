@@ -29,13 +29,25 @@ const MainMenu = () => {
 
                 {/* Botones del menú */}
                 <div className="flex flex-col gap-4 w-full max-w-sm">
+                    {/* Botón Humano vs IA */}
                     <button
-                        onClick={() => navigate('/play')}
+                        onClick={() => navigate('/play', { state: { gameMode: 'human_vs_ai' } })}
                         className="group relative px-8 py-4 bg-black/40 hover:bg-black/60 backdrop-blur-md border border-primary/30 rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(245,158,11,0.5)]"
                     >
                         <div className="absolute inset-0 bg-gradient-to-r from-secondary/20 to-primary/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                         <span className="relative text-2xl font-black text-text tracking-wider flex items-center justify-center gap-3">
-                            <span className="text-3xl"></span> JUGAR VS IA
+                            <span className="text-3xl"></span> HUMANO VS IA
+                        </span>
+                    </button>
+
+                    {/* Botón IA vs IA */}
+                    <button
+                        onClick={() => navigate('/play', { state: { gameMode: 'ai_vs_ai' } })}
+                        className="group relative px-8 py-4 bg-black/40 hover:bg-black/60 backdrop-blur-md border border-primary/30 rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-[0_0_30px_rgba(245,158,11,0.5)]"
+                    >
+                        <div className="absolute inset-0 bg-gradient-to-r from-secondary/20 to-primary/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        <span className="relative text-2xl font-black text-text tracking-wider flex items-center justify-center gap-3">
+                            <span className="text-3xl"></span> IA VS IA
                         </span>
                     </button>
                 </div>

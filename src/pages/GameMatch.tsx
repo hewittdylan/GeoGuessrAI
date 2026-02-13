@@ -6,10 +6,13 @@ import GameMap from '../components/GameMap';
 import StreetView from '../components/StreetView';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorScreen from '../components/ErrorScreen';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function GameMatch() {
     const navigate = useNavigate();
+    const location = useLocation();
+    const gameMode = (location.state as { gameMode?: 'human_vs_ai' | 'ai_vs_ai' })?.gameMode || 'human_vs_ai';
+
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY || localStorage.getItem('GOOGLE_MAPS_KEY') || '';
 
     const { isLoaded, loadError, authError } = useGoogleMaps(apiKey);
@@ -17,7 +20,7 @@ export default function GameMatch() {
     const {
         actualLocation,
         panoId,
-        userGuess,
+        player1Guess,
         result,
         isSubmitting,
         loadingLocation,
@@ -26,7 +29,7 @@ export default function GameMatch() {
         handleMapClick,
         submitGuess,
         handleNextRound
-    } = useGameLogic(isLoaded);
+    } = useGameLogic(isLoaded, gameMode);
 
     const handleExit = () => {
         navigate('/');
@@ -70,17 +73,19 @@ export default function GameMatch() {
                 <ResultOverlay
                     result={result}
                     onNextRound={handleNextRound}
+                    gameMode={gameMode}
                 />
             )}
 
             <GameMap
-                userGuess={userGuess}
+                player1Guess={player1Guess}
                 onMapClick={handleMapClick}
                 onTilesLoaded={() => setTilesLoaded(true)}
                 isSubmitting={isSubmitting}
                 onSubmit={submitGuess}
                 showResult={!!result}
                 result={result}
+                gameMode={gameMode}
             />
 
         </div>

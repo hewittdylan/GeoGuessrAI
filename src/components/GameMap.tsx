@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { GoogleMap, Marker, Polyline } from '@react-google-maps/api';
 
 interface GameMapProps {
-    userGuess: google.maps.LatLngLiteral | null;
+    player1Guess: google.maps.LatLngLiteral | null;
     onMapClick: (e: google.maps.MapMouseEvent) => void;
     onTilesLoaded: () => void;
     isSubmitting: boolean;
@@ -10,9 +10,10 @@ interface GameMapProps {
     showResult: boolean;
     result?: {
         actual: google.maps.LatLngLiteral;
-        ai: { lat: number; lng: number };
-        user: { lat: number; lng: number };
+        player1: { lat: number; lng: number };
+        player2: { lat: number; lng: number };
     };
+    gameMode?: 'human_vs_ai' | 'ai_vs_ai';
 }
 
 const interactiveMapOptions = {
@@ -22,13 +23,14 @@ const interactiveMapOptions = {
 };
 
 const GameMap: React.FC<GameMapProps> = ({
-    userGuess,
+    player1Guess,
     onMapClick,
     onTilesLoaded,
     isSubmitting,
     onSubmit,
     showResult,
-    result
+    result,
+    gameMode = 'human_vs_ai'
 }) => {
     const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // Centro del mundo
 
@@ -45,18 +47,18 @@ const GameMap: React.FC<GameMapProps> = ({
                 scaledSize: { width: 32, height: 32 },
                 anchor: { x: 6, y: 21 }
             },
-            user: {
+            player1: {
                 path: google.maps.SymbolPath.CIRCLE,
                 scale: 8,
-                fillColor: "#3b82f6", // Blue-500
+                fillColor: "#f59e0b", // Amber-500 (Primary)
                 fillOpacity: 1,
                 strokeColor: "#ffffff",
                 strokeWeight: 3,
             },
-            ai: {
+            player2: {
                 path: google.maps.SymbolPath.CIRCLE,
                 scale: 8,
-                fillColor: "#a855f7", // Purple-500
+                fillColor: "#e11d48", // Rose-600 (Secondary)
                 fillOpacity: 1,
                 strokeColor: "#ffffff",
                 strokeWeight: 3,
@@ -84,14 +86,14 @@ const GameMap: React.FC<GameMapProps> = ({
                     center={result ? result.actual : defaultCenter}
                     zoom={result ? 4 : 2}
                     options={interactiveMapOptions}
-                    onClick={!showResult ? onMapClick : undefined}
+                    onClick={!showResult && gameMode === 'human_vs_ai' ? onMapClick : undefined}
                     onTilesLoaded={onTilesLoaded}
                 >
-                    {/* Marcador de suposición del usuario durante la ronda */}
-                    {userGuess && !result && (
+                    {/* Marcador de suposición del Jugador 1 durante la ronda */}
+                    {player1Guess && !result && (
                         <Marker
-                            position={userGuess}
-                            icon={mapIcons.user}
+                            position={player1Guess}
+                            icon={mapIcons.player1}
                         />
                     )}
 
@@ -105,25 +107,25 @@ const GameMap: React.FC<GameMapProps> = ({
                                 zIndex={100}
                             />
 
-                            {/* Suposición del Usuario */}
+                            {/* Suposición del Jugador 1 */}
                             <Marker
-                                position={result.user}
-                                icon={mapIcons.user}
+                                position={result.player1}
+                                icon={mapIcons.player1}
                                 zIndex={90}
                             />
 
-                            {/* Suposición de la IA */}
+                            {/* Suposición del Jugador 2 */}
                             <Marker
-                                position={result.ai}
-                                icon={mapIcons.ai}
+                                position={result.player2}
+                                icon={mapIcons.player2}
                                 zIndex={90}
                             />
 
                             {/* Líneas */}
                             <Polyline
-                                path={[result.actual, result.user]}
+                                path={[result.actual, result.player1]}
                                 options={{
-                                    strokeColor: "#3b82f6",
+                                    strokeColor: "#f59e0b",
                                     strokeOpacity: 0,
                                     strokeWeight: 0,
                                     geodesic: true,
@@ -132,7 +134,7 @@ const GameMap: React.FC<GameMapProps> = ({
                                             path: 'M 0,-1 0,1',
                                             strokeOpacity: 1,
                                             scale: 3,
-                                            strokeColor: "#3b82f6"
+                                            strokeColor: "#f59e0b"
                                         },
                                         offset: '0',
                                         repeat: '20px'
@@ -140,9 +142,9 @@ const GameMap: React.FC<GameMapProps> = ({
                                 }}
                             />
                             <Polyline
-                                path={[result.actual, result.ai]}
+                                path={[result.actual, result.player2]}
                                 options={{
-                                    strokeColor: "#a855f7",
+                                    strokeColor: "#e11d48",
                                     strokeOpacity: 0,
                                     strokeWeight: 0,
                                     geodesic: true,
@@ -151,7 +153,7 @@ const GameMap: React.FC<GameMapProps> = ({
                                             path: 'M 0,-1 0,1',
                                             strokeOpacity: 1,
                                             scale: 3,
-                                            strokeColor: "#a855f7"
+                                            strokeColor: "#e11d48"
                                         },
                                         offset: '0',
                                         repeat: '20px'
@@ -173,16 +175,16 @@ const GameMap: React.FC<GameMapProps> = ({
                 {!showResult && (
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform transition-all duration-300 translate-y-20 group-hover:translate-y-0">
                         <button
-                            disabled={!userGuess || isSubmitting}
+                            disabled={(gameMode === 'human_vs_ai' && !player1Guess) || isSubmitting}
                             onClick={onSubmit}
                             className={`
                     px-6 py-2 rounded-full font-bold text-sm shadow-xl transition-all transform
-                    ${!userGuess
+                    ${(gameMode === 'human_vs_ai' && !player1Guess)
                                     ? 'bg-gray-700 text-gray-400 cursor-not-allowed opacity-50'
                                     : 'bg-primary text-background hover:bg-accent hover:scale-105 active:scale-95'}
                 `}
                         >
-                            {isSubmitting ? '...' : 'ADIVINAR'}
+                            {isSubmitting ? '...' : (gameMode === 'ai_vs_ai' ? 'SIMULAR RONDA' : 'ADIVINAR')}
                         </button>
                     </div>
                 )}
