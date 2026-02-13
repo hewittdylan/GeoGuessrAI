@@ -25,7 +25,7 @@ const StreetView: React.FC<StreetViewProps> = ({ panoId, isLoaded }) => {
             streetViewInstance.current = panorama;
         }
 
-        // Update Pano ID if changed
+        // Actualizar ID del panorama si cambia
         if (panoId && streetViewInstance.current) {
             streetViewInstance.current.setPano(panoId);
             streetViewInstance.current.setVisible(true);

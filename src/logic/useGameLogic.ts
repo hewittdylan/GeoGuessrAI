@@ -63,7 +63,7 @@ export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
         tryLocation();
     }, [isLoaded]);
 
-    // Initial Location Load
+    // Carga inicial ubicación
     useEffect(() => {
         if (isLoaded && !actualLocation) {
             findRandomLocation();
@@ -82,7 +82,7 @@ export const useGameLogic = (isLoaded: boolean): UseGameLogicReturn => {
         setIsSubmitting(true);
 
         setTimeout(() => {
-            // 1. Guess del usuario
+            // 1. Suposición del usuario
             const userDist = haversineDistance(actualLocation.lat, actualLocation.lng, userGuess.lat, userGuess.lng);
             const userScore = calculateScore(userDist);
 

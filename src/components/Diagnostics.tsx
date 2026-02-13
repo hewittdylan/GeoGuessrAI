@@ -11,7 +11,7 @@ const Diagnostics: React.FC<DiagnosticsProps> = ({ isLoaded, tilesLoaded, isSubm
     return (
         <div className="absolute top-4 right-4 z-50 pointer-events-none">
             <div className="bg-black/80 text-white text-[10px] p-2 rounded-lg border border-white/10 backdrop-blur-sm shadow-xl">
-                <div className="font-bold mb-1 text-xs text-green-400 border-b border-white/20 pb-1 flex justify-between">
+                <div className="font-bold mb-1 text-xs text-accent border-b border-white/20 pb-1 flex justify-between">
                     <span>Diagnóstico del sistema</span>
                     <span className={authError ? "text-red-500" : "text-green-500"}></span>
                 </div>

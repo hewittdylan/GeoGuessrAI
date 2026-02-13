@@ -30,9 +30,9 @@ const GameMap: React.FC<GameMapProps> = ({
     showResult,
     result
 }) => {
-    const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // World center
+    const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // Centro del mundo
 
-    // Custom SVG Icons - Defined inside component to ensure google.maps is available
+    // Iconos SVG personalizados, definidos dentro del componente para asegurar que google.maps esté disponible
     const mapIcons = useMemo(() => {
         if (!window.google) return null; // Guard clause
 
@@ -64,7 +64,7 @@ const GameMap: React.FC<GameMapProps> = ({
         };
     }, []);
 
-    // If mapIcons aren't loaded yet (because google api isn't ready), render nothing or simple map
+    // Si los iconos no se han cargado (porque la API no está lista), no renderizar nada
     if (!mapIcons) return null;
 
     return (
@@ -74,7 +74,7 @@ const GameMap: React.FC<GameMapProps> = ({
         transition-all duration-500 ease-in-out
         shadow-2xl rounded-xl overflow-hidden border-2 border-white/20 bg-slate-800
         ${showResult
-                    ? 'inset-4 z-40' // Full screen (almost) when showing result
+                    ? 'inset-4 z-40' // Pantalla casi completa al mostrar resultado
                     : 'bottom-4 right-4 w-72 h-48 hover:w-[600px] hover:h-[400px]'}
       `}
         >
@@ -87,7 +87,7 @@ const GameMap: React.FC<GameMapProps> = ({
                     onClick={!showResult ? onMapClick : undefined}
                     onTilesLoaded={onTilesLoaded}
                 >
-                    {/* User's Guess Marker (During Game) */}
+                    {/* Marcador de suposición del usuario durante la ronda */}
                     {userGuess && !result && (
                         <Marker
                             position={userGuess}
@@ -95,31 +95,31 @@ const GameMap: React.FC<GameMapProps> = ({
                         />
                     )}
 
-                    {/* Result Markers */}
+                    {/* Marcadores de Resultado */}
                     {result && (
                         <>
-                            {/* Actual Location - Flag */}
+                            {/* Ubicación Real - Bandera */}
                             <Marker
                                 position={result.actual}
                                 icon={mapIcons.actual as any}
                                 zIndex={100}
                             />
 
-                            {/* User Guess */}
+                            {/* Suposición del Usuario */}
                             <Marker
                                 position={result.user}
                                 icon={mapIcons.user}
                                 zIndex={90}
                             />
 
-                            {/* AI Guess */}
+                            {/* Suposición de la IA */}
                             <Marker
                                 position={result.ai}
                                 icon={mapIcons.ai}
                                 zIndex={90}
                             />
 
-                            {/* Lines */}
+                            {/* Líneas */}
                             <Polyline
                                 path={[result.actual, result.user]}
                                 options={{
@@ -162,14 +162,14 @@ const GameMap: React.FC<GameMapProps> = ({
                     )}
                 </GoogleMap>
 
-                {/* Hover overlay hint (disappears on hover) */}
+                {/* Pista superpuesta, desaparece al pasar el cursor*/}
                 {!showResult && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20 group-hover:opacity-0 transition-opacity duration-300">
                         <span className="text-white/80 font-bold text-sm bg-black/50 px-2 py-1 rounded backdrop-blur-md">MAPA</span>
                     </div>
                 )}
 
-                {/* Floating Guess Button (Inside Map) - Only show if playing */}
+                {/* Botón flotante de adivinar */}
                 {!showResult && (
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform transition-all duration-300 translate-y-20 group-hover:translate-y-0">
                         <button
@@ -179,7 +179,7 @@ const GameMap: React.FC<GameMapProps> = ({
                     px-6 py-2 rounded-full font-bold text-sm shadow-xl transition-all transform
                     ${!userGuess
                                     ? 'bg-gray-700 text-gray-400 cursor-not-allowed opacity-50'
-                                    : 'bg-green-500 text-white hover:bg-green-400 hover:scale-105 active:scale-95'}
+                                    : 'bg-primary text-background hover:bg-accent hover:scale-105 active:scale-95'}
                 `}
                         >
                             {isSubmitting ? '...' : 'ADIVINAR'}
