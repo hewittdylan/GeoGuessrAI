@@ -47,13 +47,34 @@ def load_model():
 
     # Cargar modelo entrenado
     print("Cargando modelo entrenado")
-    head = torch.nn.Linear(512, num_classes)
+    import torch.nn as nn
+    head = nn.Sequential(
+        nn.Linear(512, 1024),
+        nn.BatchNorm1d(1024),
+        nn.ReLU(),
+        nn.Dropout(0.5),
+        nn.Linear(1024, num_classes)
+    )
     
     if not MODEL_HEAD_PATH.exists():
          raise FileNotFoundError(f"Modelo entrenado no encontrado en {MODEL_HEAD_PATH}")
 
+    # El state_dict guardado parece tener "net.X" o haber sido guardado desde una clase.
+    # Si las llaves empiezan con "net.", pero head es un Sequential directo,
+    # necesitamos ajustar las llaves del state_dict o cargar en una clase igual.
     state_dict = torch.load(MODEL_HEAD_PATH, map_location=DEVICE)
-    head.load_state_dict(state_dict)
+    
+    # Adaptar las llaves si tienen prefijo "net." pero nuestro mdulo es un Sequential directo,
+    # donde las llaves esperadas son "0.weight", "1.weight", etc.
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith("net."):
+            new_key = k.replace("net.", "", 1)
+            new_state_dict[new_key] = v
+        else:
+            new_state_dict[k] = v
+            
+    head.load_state_dict(new_state_dict)
     head.to(DEVICE)
     head.eval()
     print("Modelo cargado exitosamente")

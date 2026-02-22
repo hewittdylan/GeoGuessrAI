@@ -94,21 +94,14 @@ const GameMap: React.FC<GameMapProps> = ({
     React.useEffect(() => {
         if (mapRef.current) {
             const bounds = new google.maps.LatLngBounds();
-            bounds.extend(result.actual);
-
-            // Sólo extender los bordes si jugador 1 ha hecho suposición (no es null por tiempo)
-            if (result.player1 && result.player1.lat && result.player1.lng) {
-                bounds.extend(result.player1);
-            }
-
-            // Asumimos que jugador 2 siempre escoge suposición y no se le acaba el tiempo
-            bounds.extend(result.player2);
-
             let shouldFit = false;
 
             if (showResult && result) {
                 bounds.extend(result.actual);
-                bounds.extend(result.player1);
+                // Sólo extender los bordes si jugador 1 ha hecho suposición (no es null por tiempo)
+                if (result.player1 && result.player1.lat && result.player1.lng) {
+                    bounds.extend(result.player1);
+                }
                 bounds.extend(result.player2);
                 shouldFit = true;
             } else if (top5Predictions && top5Predictions.length > 0) {

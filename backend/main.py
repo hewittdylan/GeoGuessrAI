@@ -4,7 +4,7 @@ from typing import List
 import requests
 from io import BytesIO
 from PIL import Image
-from .inference import predict, load_model
+from inference import predict, load_model
 from fastapi.middleware.cors import CORSMiddleware
 import time
 
