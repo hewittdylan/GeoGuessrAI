@@ -16,3 +16,27 @@ export const calculateScore = (distanceKm: number) => {
     const score = maxScore * Math.exp(-distanceKm / 2000);
     return Math.round(Math.max(0, score));
 };
+
+interface GetStreetViewUrlParams {
+    panoId: string;
+    heading: number;
+    pitch: number;
+    fov: number;
+    apiKey: string;
+    width?: number;
+    height?: number;
+}
+
+export const getStreetViewStaticUrl = ({
+    panoId,
+    heading,
+    pitch,
+    fov,
+    apiKey,
+    width = 640,
+    height = 640
+}: GetStreetViewUrlParams): string => {
+    // Clamp FOV
+    const clampedFov = Math.min(Math.max(fov, 10), 120);
+    return `https://maps.googleapis.com/maps/api/streetview?size=${width}x${height}&pano=${panoId}&heading=${heading}&pitch=${pitch}&fov=${clampedFov}&key=${apiKey}`;
+};

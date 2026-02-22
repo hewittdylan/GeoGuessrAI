@@ -8,6 +8,7 @@ import LoadingScreen from '../components/LoadingScreen';
 import ErrorScreen from '../components/ErrorScreen';
 import { useNavigate, useLocation } from 'react-router-dom';
 import HealthBar from '../components/HealthBar';
+import DebugPanel from '../components/DebugPanel';
 
 export default function GameMatch() {
     const navigate = useNavigate();
@@ -26,6 +27,8 @@ export default function GameMatch() {
         isSubmitting,
         loadingLocation,
         tilesLoaded,
+        debugUrls,
+        top5Predictions,
         setTilesLoaded,
         handleMapClick,
         submitGuess,
@@ -78,6 +81,11 @@ export default function GameMatch() {
                 authError={authError}
             />
 
+            <DebugPanel
+                urls={debugUrls}
+                predictions={top5Predictions}
+            />
+
             <StreetView
                 panoId={panoId}
                 isLoaded={isLoaded}
@@ -102,6 +110,7 @@ export default function GameMatch() {
                 showResult={!!result}
                 result={result}
                 gameMode={gameMode}
+                top5Predictions={top5Predictions}
             />
 
             {/* Header: Barras de Vida y Tiempo */}

@@ -14,6 +14,7 @@ interface GameMapProps {
         player2: { lat: number; lng: number };
     };
     gameMode?: 'human_vs_ai' | 'ai_vs_ai';
+    top5Predictions?: Array<{ lat: number; lng: number; confidence: number }>;
 }
 
 const interactiveMapOptions = {
@@ -30,7 +31,8 @@ const GameMap: React.FC<GameMapProps> = ({
     onSubmit,
     showResult,
     result,
-    gameMode = 'human_vs_ai'
+    gameMode = 'human_vs_ai',
+    top5Predictions
 }) => {
     const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // Centro del mundo
 
@@ -62,6 +64,14 @@ const GameMap: React.FC<GameMapProps> = ({
                 fillOpacity: 1,
                 strokeColor: "#ffffff",
                 strokeWeight: 3,
+            },
+            prediction: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 5,
+                fillColor: "#3b82f6", // Blue-500
+                fillOpacity: 0.8,
+                strokeColor: "#ffffff",
+                strokeWeight: 2,
             }
         };
     }, []);
@@ -82,7 +92,7 @@ const GameMap: React.FC<GameMapProps> = ({
 
     // Efecto para hacer auto-zoom con los resultados
     React.useEffect(() => {
-        if (showResult && result && mapRef.current) {
+        if (mapRef.current) {
             const bounds = new google.maps.LatLngBounds();
             bounds.extend(result.actual);
 
@@ -94,22 +104,37 @@ const GameMap: React.FC<GameMapProps> = ({
             // Asumimos que jugador 2 siempre escoge suposición y no se le acaba el tiempo
             bounds.extend(result.player2);
 
-            // Esperar a que termine la transición CSS (500ms) antes de ajustar
-            const timer = setTimeout(() => {
-                if (mapRef.current) {
-                    // Ajustar el mapa para que se vean todos los puntos
-                    mapRef.current.fitBounds(bounds, {
-                        top: 50,
-                        right: 50,
-                        bottom: 350, // Dejar espacio al ResultOverlay
-                        left: 50,
-                    });
-                }
-            }, 500); // 500ms para asegurar que la animación terminó
+            let shouldFit = false;
 
-            return () => clearTimeout(timer);
+            if (showResult && result) {
+                bounds.extend(result.actual);
+                bounds.extend(result.player1);
+                bounds.extend(result.player2);
+                shouldFit = true;
+            } else if (top5Predictions && top5Predictions.length > 0) {
+                // Si tenemos predicciones, las mostramos
+                top5Predictions.forEach(pred => {
+                    bounds.extend({ lat: pred.lat, lng: pred.lng });
+                });
+                shouldFit = true;
+            }
+
+            if (shouldFit) {
+                // Esperar a que termine la transición CSS (500ms) antes de ajustar
+                const timer = setTimeout(() => {
+                    if (mapRef.current) {
+                        mapRef.current.fitBounds(bounds, {
+                            top: 50,
+                            right: 50,
+                            bottom: 350, // Dejar espacio al ResultOverlay
+                            left: 50,
+                        });
+                    }
+                }, 500);
+                return () => clearTimeout(timer);
+            }
         }
-    }, [showResult, result]);
+    }, [showResult, result, top5Predictions]);
 
     return (
         <div
@@ -140,6 +165,18 @@ const GameMap: React.FC<GameMapProps> = ({
                             icon={mapIcons.player1}
                         />
                     )}
+
+                    {/* Top 5 Predicciones */}
+                    {top5Predictions && top5Predictions.map((pred, idx) => (
+                        <Marker
+                            key={`pred-${idx}`}
+                            position={{ lat: pred.lat, lng: pred.lng }}
+                            icon={mapIcons.prediction}
+                            title={`Prediction ${idx + 1}: ${(pred.confidence * 100).toFixed(1)}%`}
+                            opacity={0.8}
+                            zIndex={80 - idx} // Lower index (higher confidence) on top
+                        />
+                    ))}
 
                     {/* Marcadores de Resultado */}
                     {result && (

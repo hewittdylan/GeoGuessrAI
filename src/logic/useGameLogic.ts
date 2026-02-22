@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { haversineDistance, calculateScore } from '../utils/gameLogic';
+import { haversineDistance, calculateScore, getStreetViewStaticUrl } from '../utils/gameLogic';
 
 interface GameState {
     actualLocation: google.maps.LatLngLiteral | null;
@@ -13,6 +13,7 @@ interface GameState {
     player2TotalScore: number;
     timeLeft: number;
     matchWinner: 'player1' | 'player2' | null;
+    aiGuess: google.maps.LatLngLiteral | null;
 }
 
 interface UseGameLogicReturn extends GameState {
@@ -21,6 +22,8 @@ interface UseGameLogicReturn extends GameState {
     handleMapClick: (e: google.maps.MapMouseEvent) => void;
     submitGuess: () => void;
     handleNextRound: () => void;
+    debugUrls: string[];
+    top5Predictions: any[];
 }
 
 const STARTING_HEALTH = 10000;
@@ -35,6 +38,49 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadingLocation, setLoadingLocation] = useState(true);
     const [tilesLoaded, setTilesLoaded] = useState(false);
+    const [aiGuess, setAiGuess] = useState<google.maps.LatLngLiteral | null>(null);
+    const [debugUrls, setDebugUrls] = useState<string[]>([]);
+    const [top5Predictions, setTop5Predictions] = useState<any[]>([]);
+
+    // Predicción del backend
+    useEffect(() => {
+        if (!panoId || !import.meta.env.VITE_GOOGLE_MAPS_KEY) return;
+
+        const fetchAiPrediction = async () => {
+            const urls = [0, 90, 180, 270].map(heading => getStreetViewStaticUrl({
+                panoId,
+                heading,
+                pitch: 0,
+                fov: 90,
+                apiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
+                width: 640,
+                height: 680
+            }));
+
+            setDebugUrls(urls);
+
+            try {
+                const response = await fetch('http://localhost:8000/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urls })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    // Recibir y procesar la predicción del backend { best: ..., top_5: ... }
+                    if (data.best) {
+                        setAiGuess(data.best);
+                        setTop5Predictions(data.top_5 || []);
+                        console.log("Predicción de IA recibida", data);
+                    }
+                }
+            } catch (error) {
+                console.error("Error al obtener la predicción de IA:", error);
+            }
+        };
+
+        fetchAiPrediction();
+    }, [panoId]);
 
     // Estado competitivo
     const [player1TotalScore, setPlayer1TotalScore] = useState(STARTING_HEALTH);
@@ -135,13 +181,18 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
 
             // 1. Lógica para el Jugador 1
             if (gameMode === 'ai_vs_ai') {
-                // Simular la suposición de la IA 1
-                const latDrift1 = (Math.random() - 0.5) * 4;
-                const lngDrift1 = (Math.random() - 0.5) * 4;
-                finalPlayer1Guess = {
-                    lat: actualLocation.lat + latDrift1,
-                    lng: actualLocation.lng + lngDrift1
-                };
+                // Usar la predicción de la IA real si existe
+                if (aiGuess) {
+                    finalPlayer1Guess = aiGuess;
+                } else {
+                    // Fallback
+                    const latDrift1 = (Math.random() - 0.5) * 4;
+                    const lngDrift1 = (Math.random() - 0.5) * 4;
+                    finalPlayer1Guess = {
+                        lat: actualLocation.lat + latDrift1,
+                        lng: actualLocation.lng + lngDrift1
+                    };
+                }
                 setPlayer1Guess(finalPlayer1Guess);
             } else if (forceTimeOut && !player1Guess) {
                 // Si se acabó el tiempo y no adivinó, null (tratado como 0 puntos)
@@ -161,10 +212,18 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             }
 
             // 2. Lógica para el Jugador 2
-            const latDrift = (Math.random() - 0.5) * 4;
-            const lngDrift = (Math.random() - 0.5) * 4;
-            const aiLat = actualLocation.lat + latDrift;
-            const aiLng = actualLocation.lng + lngDrift;
+            let aiLat = actualLocation.lat;
+            let aiLng = actualLocation.lng;
+
+            if (aiGuess) {
+                aiLat = aiGuess.lat;
+                aiLng = aiGuess.lng;
+            } else {
+                const latDrift = (Math.random() - 0.5) * 4;
+                const lngDrift = (Math.random() - 0.5) * 4;
+                aiLat += latDrift;
+                aiLng += lngDrift;
+            }
 
             const player2Dist = haversineDistance(actualLocation.lat, actualLocation.lng, aiLat, aiLng);
             const player2Score = calculateScore(player2Dist);
@@ -236,6 +295,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         setPlayer1Guess(null);
         setTilesLoaded(false);
         // El timer se reiniciará cuando findRandomLocation encuentre una ubicación
+        setAiGuess(null);
+        setTop5Predictions([]);
+        setDebugUrls([]);
         findRandomLocation();
     };
 
@@ -247,6 +309,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         isSubmitting,
         loadingLocation,
         tilesLoaded,
+        aiGuess,
+        debugUrls,
+        top5Predictions,
         setTilesLoaded,
         setPlayer1Guess,
         handleMapClick,
