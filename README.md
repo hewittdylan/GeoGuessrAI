@@ -47,7 +47,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 # En Windows:
 python -m venv .venv
-.venv\Scripts\activate
+.\venv\Scripts\activate
 
 # Instalar dependencias
 pip install -r backend/requirements.txt

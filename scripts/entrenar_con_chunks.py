@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
 import numpy as np
 import pickle
 import glob
@@ -10,7 +10,7 @@ import os
 import sys
 import gc
 
-BATCH_SIZE = 256
+BATCH_SIZE = 512
 EPOCHS = 50
 LR = 0.001
 CHECKPOINT_DIR = "../models/checkpoints_features" 
@@ -43,9 +43,18 @@ def cargar_datos(directorio):
     return X, y
 
 if __name__ == "__main__":
-    X_train, y_train = cargar_datos("../models/checkpoints_features/train")
-    X_val, y_val = cargar_datos("../models/checkpoints_features/val")
+    # X_train, y_train = cargar_datos("../models/checkpoints_features/train")
+    # X_val, y_val = cargar_datos("../models/checkpoints_features/val")
+    # Usando S2 = 10, MIN_IMAGES = 100 no había una sola foto en el dataset de val, hace falta hacer split manual
+
+    X, y = cargar_datos("../models/checkpoints_features/train")
     
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, 
+        test_size=0.1, 
+        random_state=42, 
+        stratify=y
+    )
     
     # Cargar mapa de clases para obtener el número real de celdas
     try:
