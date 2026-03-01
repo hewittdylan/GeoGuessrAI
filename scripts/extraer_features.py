@@ -18,21 +18,24 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 BATCH_SIZE = 20           # Usando GTX 1650 (4GB) (20 * 3 crops = 60 imágenes en VRAM)
 NUM_WORKERS = 2           # Windows + HDD, subirlo empeora el rendimiento
 CACHE_DIR = "D:/Datasets_Cache"
-MAP_PATH = "../models/s2_class_map.pkl"
+OUTPUT_DIR = "../models/checkpoints_features_multi"
+MAP_PATH = "../models/s2_class_map_multi.pkl"
+INDEX_FILE = "../models/train_indices_multi.pkl"
 S2_LEVEL = 12
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 print(f"Preparando entorno")
 
-# Cargamos mapa S2
+# Cargamos mapas S2
 with open(MAP_PATH, "rb") as f:
     data_loaded = pickle.load(f)
-token_to_index = data_loaded["cell_to_idx"]
 
-# Usamos el mapeo generado en el Notebook para mantener la coherencia
-valid_tokens = list(token_to_index.keys())
-print(f"Mapa cargado con {len(valid_tokens)} celdas válidas")
+map_l4 = data_loaded["L4"]["cell_to_idx"]
+map_l7 = data_loaded["L7"]["cell_to_idx"]
+map_l10 = data_loaded["L10"]["cell_to_idx"]
+
+print(f"Mapas cargados: {len(map_l4)} Países, {len(map_l7)} Regiones, {len(map_l10)} Ciudades")
 
 # Transformación Multi-Crop, en el dataset el tamaño de las imágenes es 910x512 o 682x512, ratios 16:9 o 4:3
 # CLIP espera imágenes de 224x224, por lo que vamos a extraer recortes que cubran toda la panorámica
@@ -107,15 +110,26 @@ class FeatureExtractionDataset(Dataset):
             # Lat / Lon -> S2 Cell -> Int ID
             lat, lon = sample['latitude'], sample['longitude']
             p1 = s2sphere.LatLng.from_degrees(lat, lon)
-            cell = s2sphere.CellId.from_lat_lng(p1).parent(S2_LEVEL)
-            token = cell.to_token()
+            cell = s2sphere.CellId.from_lat_lng(p1)
+            
+            token_l4 = cell.parent(4).to_token()
+            token_l7 = cell.parent(7).to_token()
+            token_l10 = cell.parent(10).to_token()
 
-            # Si el token está en una clase válida, devolvemos su ID
-            if token in token_to_index:
-                label_id = token_to_index[token]
-                return image_tensor, label_id
-            else:
+            # Obtenemos los IDs. Si no existe en el diccionario, le asignamos -100
+            label_l4 = map_l4.get(token_l4, -100)
+            label_l7 = map_l7.get(token_l7, -100)
+            label_l10 = map_l10.get(token_l10, -100)
+
+            # Si no existe en el Nivel 4, descartamos
+            if label_l4 == -100:
                 return None, None
+                
+            # Agrupamos las 3 etiquetas en un array de numpy
+            labels = np.array([label_l4, label_l7, label_l10], dtype=np.int32)
+            
+            return image_tensor, labels
+            
         except Exception as e:
             return None, None
 

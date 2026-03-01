@@ -32,7 +32,22 @@ async def get_prediction(request: PredictRequest):
         raise HTTPException(status_code=400, detail="No URLs provided")
     
     images = []
-    print(f"Recibidas {len(request.urls)} URLs")
+    # Intentar extraer coordenadas reales de la primera URL si es posible
+    true_lat, true_lng = None, None
+    import re
+    match = re.search(r'location=([\d\.-]+),([\d\.-]+)', request.urls[0])
+    if match:
+        true_lat, true_lng = float(match.group(1)), float(match.group(2))
+    else:
+        # A veces viene en un formato diferente, e.g. cbll=
+        match = re.search(r'cbll=([\d\.-]+),([\d\.-]+)', request.urls[0])
+        if match:
+            true_lat, true_lng = float(match.group(1)), float(match.group(2))
+            
+    if true_lat is not None and true_lng is not None:
+        print(f"Recibidas {len(request.urls)} URLs (Coordenadas Reales: {true_lat:.4f}, {true_lng:.4f})")
+    else:
+         print(f"Recibidas {len(request.urls)} URLs (Coordenadas Reales: Desconocidas)")
     
     try:
         # Descargar imágenes
@@ -53,7 +68,10 @@ async def get_prediction(request: PredictRequest):
             
         print("Ejecutando inferencia")
         start_time = time.time()
-        result = predict(images)
+        
+        true_coords = {"lat": true_lat, "lng": true_lng} if true_lat is not None else None
+        result = predict(images, true_coords=true_coords)
+        
         duration = time.time() - start_time
         print(f"Predicción realizada en {duration:.2f}s: {result}")
         

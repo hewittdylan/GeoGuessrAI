@@ -47,6 +47,12 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         if (!panoId || !import.meta.env.VITE_GOOGLE_MAPS_KEY) return;
 
         const fetchAiPrediction = async () => {
+            // Añadimos la ubicación para que el backend pueda calcular el error de distancia
+            let locationParams = "";
+            if (actualLocation) {
+                locationParams = `&location=${actualLocation.lat},${actualLocation.lng}`;
+            }
+
             const urls = [0, 90, 180, 270].map(heading => getStreetViewStaticUrl({
                 panoId,
                 heading,
@@ -55,7 +61,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
                 apiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
                 width: 640,
                 height: 680
-            }));
+            }) + locationParams);
 
             setDebugUrls(urls);
 
@@ -80,7 +86,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         };
 
         fetchAiPrediction();
-    }, [panoId]);
+    }, [panoId, actualLocation]);
 
     // Estado competitivo
     const [player1TotalScore, setPlayer1TotalScore] = useState(STARTING_HEALTH);
