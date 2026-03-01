@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
@@ -107,9 +108,32 @@ if __name__ == "__main__":
 
     model = GeoGuessrMultiHead().to(device)
     
-    # El truco es que ignore_index = -100 ignora las zonas remotas sin Nivel 10
-    criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    # Implementación de Focal Loss para lidiar con el desbalanceo del dataset 
+    class FocalLoss(nn.Module):
+        def __init__(self, alpha: float=1.0, gamma: float=2.0, ignore_index: int=-100):
+            super().__init__()
+            self.alpha = alpha
+            self.gamma = gamma
+            self.ignore_index = ignore_index
+
+        def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+            ce_loss = F.cross_entropy(inputs, targets, reduction='none', ignore_index=self.ignore_index)
+            pt = torch.exp(-ce_loss)
+            focal_loss = self.alpha * ((1 - pt) ** self.gamma) * ce_loss
+            
+            # Promediamos solo sobre las muestras válidas
+            valid_mask = targets != self.ignore_index
+            if valid_mask.any():
+                return focal_loss[valid_mask].mean()
+            else:
+                return (ce_loss.sum() * 0.0)
+
+    # Reemplazamos CrossEntropy por FocalLoss
+    criterion = FocalLoss(ignore_index=-100)
     optimizer = optim.AdamW(model.parameters(), lr=LR)
+    
+    # Scheduler para reducir el learning rate cuando el val_loss se estanca
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
 
     # Función auxiliar para calcular precisión ignorando los -100
     def calcular_accuracy(outputs, targets):
@@ -127,6 +151,18 @@ if __name__ == "__main__":
         model.train()
         running_loss = 0.0
         
+        # Pesos dinámicos por época
+        progreso = epoch / max(1, (EPOCHS - 1))
+        # Empezamos exigiendo L4 (0.8) y terminamos exigiéndolo poco (0.1)
+        w_l4 = 0.8 - (0.7 * progreso)
+        # Empezamos perdonando a L10 (0.05) y terminamos exigiéndole mucho (0.6)
+        w_l10 = 0.05 + (0.55 * progreso)
+        # L7 se lleva el resto (siempre entre 0.15 y 0.3)
+        w_l7 = 1.0 - (w_l4 + w_l10)
+        
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"\n[Epoch {epoch+1}/{EPOCHS} | LR: {current_lr:.6f} | Pesos Loss -> L4:{w_l4:.2f} L7:{w_l7:.2f} L10:{w_l10:.2f}]")
+        
         for i, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             
@@ -138,8 +174,8 @@ if __name__ == "__main__":
             loss_l7 = criterion(out_l7, targets[:, 1])
             loss_l10 = criterion(out_l10, targets[:, 2])
             
-            # Sumamos las pérdidas para actualizar todos los pesos a la vez
-            loss = loss_l4 + loss_l7 + loss_l10
+            # Sumamos las pérdidas ponderadas dinámicamente
+            loss = (loss_l4 * w_l4) + (loss_l7 * w_l7) + (loss_l10 * w_l10)
             loss.backward()
             optimizer.step()
             
@@ -158,7 +194,12 @@ if __name__ == "__main__":
                 inputs, targets = inputs.to(device), targets.to(device)
                 out_l4, out_l7, out_l10 = model(inputs)
                 
-                loss = criterion(out_l4, targets[:, 0]) + criterion(out_l7, targets[:, 1]) + criterion(out_l10, targets[:, 2])
+                loss_v_l4 = criterion(out_l4, targets[:, 0])
+                loss_v_l7 = criterion(out_l7, targets[:, 1])
+                loss_v_l10 = criterion(out_l10, targets[:, 2])
+                
+                # Usamos los mismos pesos dinámicos para el loss de validación
+                loss = (loss_v_l4 * w_l4) + (loss_v_l7 * w_l7) + (loss_v_l10 * w_l10)
                 val_loss += loss.item()
                 
                 # Acumulamos las precisiones medias por batch
@@ -171,7 +212,10 @@ if __name__ == "__main__":
         acc_l7 = acc_l7_total / batches_val
         acc_l10 = acc_l10_total / batches_val
         
-        print(f"\nEpoch {epoch+1}/{EPOCHS} | Val Loss: {avg_val_loss:.4f}")
+        # Step the scheduler
+        scheduler.step(avg_val_loss)
+        
+        print(f"Epoch {epoch+1}/{EPOCHS} | Val Loss: {avg_val_loss:.4f}")
         print(f"Acc L4 (País): {acc_l4:.2f}% | Acc L7 (Región): {acc_l7:.2f}% | Acc L10 (Ciudad): {acc_l10:.2f}%")
         
         # Guardamos el modelo basándonos en la precisión del País (L4)
