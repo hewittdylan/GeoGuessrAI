@@ -6,6 +6,7 @@ import s2sphere
 from PIL import Image
 import os
 from pathlib import Path
+from torchvision import transforms
 
 # Configuración
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -16,9 +17,36 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 print(f"Iniciando sistema de predicción en {DEVICE}")
 
+# Transformación Multi-Crop idéntica a extraer_features.py para que el modelo reciba lo mismo que en el entrenamiento
+class MultiCropTransform:
+    def __init__(self):
+        self.normalize = transforms.Normalize(
+            mean=(0.48145466, 0.4578275, 0.40821073), 
+            std=(0.26862954, 0.26130258, 0.27577711)
+        )
+        self.to_tensor = transforms.ToTensor()
+        self.resize_height = 224
+
+    def __call__(self, image):
+        w, h = image.size
+        scale = self.resize_height / h
+        new_w = int(w * scale)
+        new_h = self.resize_height
+        image = image.resize((new_w, new_h), Image.BICUBIC)
+        
+        crops = []
+        crops.append(image.crop((0, 0, 224, 224)))
+        center_x = (new_w - 224) // 2
+        crops.append(image.crop((center_x, 0, center_x + 224, 224)))
+        crops.append(image.crop((new_w - 224, 0, new_w, 224)))
+        
+        tensors = [self.normalize(self.to_tensor(crop)) for crop in crops]
+        return torch.stack(tensors)
+
+custom_transform = MultiCropTransform()
+
 # Variables globales para mantener el modelo
 backbone = None
-preprocess = None
 head = None
 idx_to_cell_l4 = None
 num_classes_l4 = None
@@ -29,7 +57,7 @@ num_classes_l10 = None
 l10_to_l4_idx = None  # Lista que mapea el índice L10 a su índice L4 correspondiente
 
 def load_model():
-    global backbone, preprocess, head
+    global backbone, head
     global idx_to_cell_l4, num_classes_l4, idx_to_cell_l7, num_classes_l7, idx_to_cell_l10, num_classes_l10, l10_to_l4_idx
     
     if backbone is not None:
@@ -76,7 +104,7 @@ def load_model():
 
     # Cargar CLIP
     print("Cargando CLIP (ViT-B-32)")
-    backbone, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+    backbone, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
     backbone.to(DEVICE)
     backbone.eval()
 
@@ -154,10 +182,21 @@ def predict(images: list[Image.Image], top_k=5, true_coords=None):
     
     for i, img in enumerate(images):
         img = img.convert("RGB")
-        img_tensor = preprocess(img).unsqueeze(0).to(DEVICE)
+        # Generamos los 3 recortes: shape (3, 3, 224, 224)
+        crops_tensor = custom_transform(img).to(DEVICE)
 
         with torch.no_grad():
-            features = backbone.encode_image(img_tensor).float()
+            # Codificamos las 3 imágenes (3, 512)
+            c_features = backbone.encode_image(crops_tensor)
+            c_features /= c_features.norm(dim=-1, keepdim=True)
+            
+            # Promediamos y re-normalizamos (1, 512)
+            features = c_features.mean(dim=0, keepdim=True)
+            features /= features.norm(dim=-1, keepdim=True)
+            
+            # Pasamos flotantes puros al modelo MultiHead
+            features = features.float()
+            
             out_l4, out_l7, out_l10 = head(features)
             probs_l4 = F.softmax(out_l4, dim=1)
             
