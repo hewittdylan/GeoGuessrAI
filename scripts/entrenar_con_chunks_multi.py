@@ -130,10 +130,10 @@ if __name__ == "__main__":
 
     # Reemplazamos CrossEntropy por FocalLoss
     criterion = FocalLoss(ignore_index=-100)
-    optimizer = optim.AdamW(model.parameters(), lr=LR)
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     
-    # Scheduler para reducir el learning rate cuando el val_loss se estanca
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+    # Con el scheduler monitorizamos acc_l4 (Precisión del País) para que no caiga abruptamente ante subidas artificiales de val_loss
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=4, verbose=True)
 
     # Función auxiliar para calcular precisión ignorando los -100
     def calcular_accuracy(outputs, targets):
@@ -153,12 +153,18 @@ if __name__ == "__main__":
         
         # Pesos dinámicos por época
         progreso = epoch / max(1, (EPOCHS - 1))
-        # Empezamos exigiendo L4 (0.8) y terminamos exigiéndolo poco (0.1)
-        w_l4 = 0.8 - (0.7 * progreso)
-        # Empezamos perdonando a L10 (0.05) y terminamos exigiéndole mucho (0.6)
-        w_l10 = 0.05 + (0.55 * progreso)
-        # L7 se lleva el resto (siempre entre 0.15 y 0.3)
-        w_l7 = 1.0 - (w_l4 + w_l10)
+        # Warmup más lento para L10: No le exigimos nada hasta después de estabilizarse la red
+        if progreso < 0.2:
+            # Épocas iniciales: Solo País y algo de Región
+            w_l4 = 0.9
+            w_l7 = 0.1
+            w_l10 = 0.0
+        else:
+            # Transición suave
+            progreso_ajustado = (progreso - 0.2) / 0.8  # Escala de 0.0 a 1.0 para el 80% restante de las épocas
+            w_l4 = max(0.1, 0.9 - (0.8 * progreso_ajustado))
+            w_l10 = min(0.6, 0.0 + (0.6 * progreso_ajustado))
+            w_l7 = 1.0 - (w_l4 + w_l10)
         
         current_lr = optimizer.param_groups[0]['lr']
         print(f"\n[Epoch {epoch+1}/{EPOCHS} | LR: {current_lr:.6f} | Pesos Loss -> L4:{w_l4:.2f} L7:{w_l7:.2f} L10:{w_l10:.2f}]")
@@ -212,8 +218,8 @@ if __name__ == "__main__":
         acc_l7 = acc_l7_total / batches_val
         acc_l10 = acc_l10_total / batches_val
         
-        # Step the scheduler
-        scheduler.step(avg_val_loss)
+        # Step the scheduler monitorizando la precisión L4, no la loss
+        scheduler.step(acc_l4)
         
         print(f"Epoch {epoch+1}/{EPOCHS} | Val Loss: {avg_val_loss:.4f}")
         print(f"Acc L4 (País): {acc_l4:.2f}% | Acc L7 (Región): {acc_l7:.2f}% | Acc L10 (Ciudad): {acc_l10:.2f}%")
