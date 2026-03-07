@@ -14,7 +14,6 @@ interface GameMapProps {
         player2: { lat: number; lng: number };
     };
     gameMode?: 'human_vs_ai' | 'ai_vs_ai';
-    top5Predictions?: Array<{ lat: number; lng: number; confidence: number }>;
 }
 
 const interactiveMapOptions = {
@@ -31,8 +30,7 @@ const GameMap: React.FC<GameMapProps> = ({
     onSubmit,
     showResult,
     result,
-    gameMode = 'human_vs_ai',
-    top5Predictions
+    gameMode = 'human_vs_ai'
 }) => {
     const defaultCenter = useMemo(() => ({ lat: 20, lng: 0 }), []); // Centro del mundo
 
@@ -64,14 +62,6 @@ const GameMap: React.FC<GameMapProps> = ({
                 fillOpacity: 1,
                 strokeColor: "#ffffff",
                 strokeWeight: 3,
-            },
-            prediction: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: 5,
-                fillColor: "#3b82f6", // Blue-500
-                fillOpacity: 0.8,
-                strokeColor: "#ffffff",
-                strokeWeight: 2,
             }
         };
     }, []);
@@ -104,12 +94,6 @@ const GameMap: React.FC<GameMapProps> = ({
                 }
                 bounds.extend(result.player2);
                 shouldFit = true;
-            } else if (top5Predictions && top5Predictions.length > 0) {
-                // Si tenemos predicciones, las mostramos
-                top5Predictions.forEach(pred => {
-                    bounds.extend({ lat: pred.lat, lng: pred.lng });
-                });
-                shouldFit = true;
             }
 
             if (shouldFit) {
@@ -127,7 +111,7 @@ const GameMap: React.FC<GameMapProps> = ({
                 return () => clearTimeout(timer);
             }
         }
-    }, [showResult, result, top5Predictions]);
+    }, [showResult, result]);
 
     return (
         <div
@@ -158,18 +142,6 @@ const GameMap: React.FC<GameMapProps> = ({
                             icon={mapIcons.player1}
                         />
                     )}
-
-                    {/* Top 5 Predicciones */}
-                    {top5Predictions && top5Predictions.map((pred, idx) => (
-                        <Marker
-                            key={`pred-${idx}`}
-                            position={{ lat: pred.lat, lng: pred.lng }}
-                            icon={mapIcons.prediction}
-                            title={`Prediction ${idx + 1}: ${(pred.confidence * 100).toFixed(1)}%`}
-                            opacity={0.8}
-                            zIndex={80 - idx} // Lower index (higher confidence) on top
-                        />
-                    ))}
 
                     {/* Marcadores de Resultado */}
                     {result && (

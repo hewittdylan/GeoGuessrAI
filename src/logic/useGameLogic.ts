@@ -27,7 +27,7 @@ interface UseGameLogicReturn extends GameState {
 }
 
 const STARTING_HEALTH = 10000;
-const ROUND_TIME = 120;
+const ROUND_TIME = 90;
 
 export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs_ai' = 'human_vs_ai'): UseGameLogicReturn => {
     // Estado del juego
@@ -96,6 +96,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
 
     // Referencias para el temporizador
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const submitGuessRef = useRef<((forceTimeOut: boolean) => void) | null>(null);
 
     const findRandomLocation = useCallback(() => {
         if (!isLoaded || !window.google) return;
@@ -151,8 +152,8 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             setTimeLeft((prev) => {
                 if (prev <= 1) {
                     if (timerRef.current) clearInterval(timerRef.current);
-                    // Forzar envío cuando el tiempo se agota
-                    submitGuess(true);
+                    // Forzar envío con la función actualizada
+                    if (submitGuessRef.current) submitGuessRef.current(true);
                     return 0;
                 }
                 return prev - 1;
@@ -289,6 +290,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             setIsSubmitting(false);
         }, 800);
     };
+
+    // Actualizamos la ref en cada render
+    submitGuessRef.current = submitGuess;
 
     const handleNextRound = () => {
         if (matchWinner) {
