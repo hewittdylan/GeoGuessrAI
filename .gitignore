@@ -68,3 +68,5 @@ npm-debug.log
 yarn-error.log
 .npm
 .vite/
+
+training_data/

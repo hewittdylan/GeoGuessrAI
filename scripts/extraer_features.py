@@ -15,7 +15,7 @@ from tqdm import tqdm
 # Evita errores por imágenes truncadas
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-BATCH_SIZE = 20           # Usando GTX 1650 (4GB) (20 * 3 crops = 60 imágenes en VRAM)
+BATCH_SIZE = 20           # Usando GTX 980 (4GB) (20 * 3 crops = 60 imágenes en VRAM)
 NUM_WORKERS = 2           # Windows + HDD, subirlo empeora el rendimiento
 CACHE_DIR = "D:/Datasets_Cache"
 OUTPUT_DIR = "../models/checkpoints_features_multi"
@@ -41,6 +41,7 @@ print(f"Mapas cargados: {len(map_l4)} Países, {len(map_l7)} Regiones, {len(map_
 # CLIP espera imágenes de 224x224, por lo que vamos a extraer recortes que cubran toda la panorámica
 class MultiCropTransform:
     def __init__(self):
+        # Aplica estandarización a cada canal de color usando los mismos valores de media y varianza de OpenAI
         self.normalize = transforms.Normalize(
             mean=(0.48145466, 0.4578275, 0.40821073), 
             std=(0.26862954, 0.26130258, 0.27577711)
