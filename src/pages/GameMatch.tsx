@@ -12,9 +12,10 @@ import HealthBar from '../components/HealthBar';
 export default function GameMatch() {
     const navigate = useNavigate();
     const location = useLocation();
-    const gameMode = (location.state as { gameMode?: 'human_vs_ai' | 'ai_vs_ai' })?.gameMode || 'human_vs_ai';
-
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY || localStorage.getItem('GOOGLE_MAPS_KEY') || '';
+    const state = location.state as any;
+    const gameMode = state?.gameMode || 'human_vs_ai';
+    const model1Id = state?.model1Id || '';
+    const model2Id = state?.model2Id || '';    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY || localStorage.getItem('GOOGLE_MAPS_KEY') || '';
 
     const { isLoaded, loadError, authError } = useGoogleMaps(apiKey);
 
@@ -35,7 +36,7 @@ export default function GameMatch() {
         player2TotalScore,
         timeLeft,
         matchWinner
-    } = useGameLogic(isLoaded, gameMode);
+    } = useGameLogic(isLoaded, gameMode, model1Id, model2Id);
 
     const handleExit = () => {
         navigate('/');

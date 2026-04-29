@@ -13,7 +13,9 @@ interface GameState {
     player2TotalScore: number;
     timeLeft: number;
     matchWinner: 'player1' | 'player2' | null;
-    aiGuess: google.maps.LatLngLiteral | null;
+    aiGuess: google.maps.LatLngLiteral | null; // Mantenido para compatibilidad de interfaz
+    aiGuess1: google.maps.LatLngLiteral | null;
+    aiGuess2: google.maps.LatLngLiteral | null;
 }
 
 interface UseGameLogicReturn extends GameState {
@@ -29,8 +31,12 @@ interface UseGameLogicReturn extends GameState {
 const STARTING_HEALTH = 10000;
 const ROUND_TIME = 90;
 
-export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs_ai' = 'human_vs_ai'): UseGameLogicReturn => {
-    // Estado del juego
+export const useGameLogic = (
+    isLoaded: boolean,
+    gameMode: 'human_vs_ai' | 'ai_vs_ai' = 'human_vs_ai',
+    model1Id: string = '',
+    model2Id: string = ''
+): UseGameLogicReturn => {
     const [actualLocation, setActualLocation] = useState<google.maps.LatLngLiteral | null>(null);
     const [panoId, setPanoId] = useState('');
     const [player1Guess, setPlayer1Guess] = useState<google.maps.LatLngLiteral | null>(null);
@@ -38,7 +44,10 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadingLocation, setLoadingLocation] = useState(true);
     const [tilesLoaded, setTilesLoaded] = useState(false);
-    const [aiGuess, setAiGuess] = useState<google.maps.LatLngLiteral | null>(null);
+
+    const [aiGuess1, setAiGuess1] = useState<google.maps.LatLngLiteral | null>(null);
+    const [aiGuess2, setAiGuess2] = useState<google.maps.LatLngLiteral | null>(null);
+
     const [debugUrls, setDebugUrls] = useState<string[]>([]);
     const [top5Predictions, setTop5Predictions] = useState<any[]>([]);
 
@@ -66,18 +75,36 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             setDebugUrls(urls);
 
             try {
-                const response = await fetch('http://localhost:8000/predict', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    // Recibir y procesar la predicción del backend { best: ..., top_5: ... }
-                    if (data.best) {
-                        setAiGuess(data.best);
-                        setTop5Predictions(data.top_5 || []);
-                        console.log("Predicción de IA recibida", data);
+                // Jugador 2 (IA)
+                if (model2Id) {
+                    const res2 = await fetch('http://localhost:8000/predict', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ urls, model_id: model2Id })
+                    });
+                    if (res2.ok) {
+                        const data2 = await res2.json();
+                        if (data2.best) {
+                            setAiGuess2(data2.best);
+                            setTop5Predictions(data2.top_5 || []);
+                            console.log("Predicción de IA 2 recibida", data2);
+                        }
+                    }
+                }
+
+                // Jugador 1 (Solo si es IA vs IA)
+                if (gameMode === 'ai_vs_ai' && model1Id) {
+                    const res1 = await fetch('http://localhost:8000/predict', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ urls, model_id: model1Id })
+                    });
+                    if (res1.ok) {
+                        const data1 = await res1.json();
+                        if (data1.best) {
+                            setAiGuess1(data1.best);
+                            console.log("Predicción de IA 1 recibida", data1);
+                        }
                     }
                 }
             } catch (error) {
@@ -86,7 +113,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         };
 
         fetchAiPrediction();
-    }, [panoId, actualLocation]);
+    }, [panoId, actualLocation, gameMode, model1Id, model2Id]);
 
     // Estado competitivo
     const [player1TotalScore, setPlayer1TotalScore] = useState(STARTING_HEALTH);
@@ -116,7 +143,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
                 source: google.maps.StreetViewSource.OUTDOOR
             }, (data, status) => {
                 if (status === google.maps.StreetViewStatus.OK && data && data.location && data.location.latLng) {
-                    console.log("Found valid location:", data.location.description);
+                    console.log("Encontrada ubicación válida:", data.location.description);
                     setActualLocation({
                         lat: data.location.latLng.lat(),
                         lng: data.location.latLng.lng()
@@ -163,7 +190,7 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
-    }, [matchWinner, result, loadingLocation, isSubmitting]); // submitGuess es stable, pero lo quitamos de deptos para evitar loops si cambia
+    }, [matchWinner, result, loadingLocation, isSubmitting]);
 
     const handleMapClick = useCallback((e: google.maps.MapMouseEvent) => {
         if (result || gameMode === 'ai_vs_ai' || matchWinner) return;
@@ -188,11 +215,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
 
             // 1. Lógica para el Jugador 1
             if (gameMode === 'ai_vs_ai') {
-                // Usar la predicción de la IA real si existe
-                if (aiGuess) {
-                    finalPlayer1Guess = aiGuess;
+                if (aiGuess1) {
+                    finalPlayer1Guess = aiGuess1;
                 } else {
-                    // Fallback
                     const latDrift1 = (Math.random() - 0.5) * 4;
                     const lngDrift1 = (Math.random() - 0.5) * 4;
                     finalPlayer1Guess = {
@@ -222,9 +247,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
             let aiLat = actualLocation.lat;
             let aiLng = actualLocation.lng;
 
-            if (aiGuess) {
-                aiLat = aiGuess.lat;
-                aiLng = aiGuess.lng;
+            if (aiGuess2) {
+                aiLat = aiGuess2.lat;
+                aiLng = aiGuess2.lng;
             } else {
                 const latDrift = (Math.random() - 0.5) * 4;
                 const lngDrift = (Math.random() - 0.5) * 4;
@@ -304,12 +329,16 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         setResult(null);
         setPlayer1Guess(null);
         setTilesLoaded(false);
-        // El timer se reiniciará cuando findRandomLocation encuentre una ubicación
-        setAiGuess(null);
+        setAiGuess1(null);
+        setAiGuess2(null);
         setTop5Predictions([]);
         setDebugUrls([]);
         findRandomLocation();
     };
+
+    // Diagnostics usa aiGuess para saber si la IA está lista. 
+    // En AI vs AI, ambas IA deben estar listas.
+    const isAiReady = gameMode === 'ai_vs_ai' ? (!!aiGuess1 && !!aiGuess2) : !!aiGuess2;
 
     return {
         actualLocation,
@@ -319,7 +348,9 @@ export const useGameLogic = (isLoaded: boolean, gameMode: 'human_vs_ai' | 'ai_vs
         isSubmitting,
         loadingLocation,
         tilesLoaded,
-        aiGuess,
+        aiGuess: isAiReady ? aiGuess2 : null, // Retrocompatibilidad visual, null si no está listo
+        aiGuess1,
+        aiGuess2,
         debugUrls,
         top5Predictions,
         setTilesLoaded,

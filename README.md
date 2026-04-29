@@ -63,6 +63,21 @@ VITE_GOOGLE_MAPS_KEY=api_key_de_google_maps
 
 > **Nota:** Necesitas una API key de Google Cloud con **Maps JavaScript API** y **Street View Static API** habilitadas. [Se puede solicitar aquí](https://developers.google.com/maps/documentation/javascript/get-api-key).
 
+### Descarga de Modelos
+Debido a las limitaciones de peso de GitHub, los pesos de los modelos entrenados (`.pth`) y sus mapas de clases S2 (`.pkl`) están almacenados externamente.
+
+1. **Descargar archivos**: Accede a la carpeta de [Google Drive](https://drive.google.com/drive/folders/1U3gJTL0UpOkNphMppo-ILLGck1lymGQt?usp=sharing) y descarga los modelos que desees utilizar.
+2. **Ubicación**: Coloca los archivos descargados dentro de la carpeta `models/` en la raíz del proyecto. Puedes organizarlos en subcarpetas si lo prefieres (ej. `models/multi_head_v3/`).
+3. **Configuración**: El sistema cargará dinámicamente los modelos listados en el archivo `models/config.json`. Si descargas un modelo nuevo, simplemente añade una entrada en ese archivo:
+```json
+"identificador_modelo": {
+  "name": "Nombre a mostrar en el menú web",
+  "type": "multi_head", // o "uni_head"
+  "weights_path": "ruta/a/tus/pesos.pth",
+  "map_path": "ruta/a/tu/mapa_s2.pkl"
+}
+```
+
 ### Ejecutar la Aplicación
 
 Para que el sistema funcione correctamente, necesitas ejecutar tanto el cliente (interfaz) como el servidor (IA). Debes abrir dos terminales separadas.

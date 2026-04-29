@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any
 import requests
 from io import BytesIO
 from PIL import Image
-from inference import predict, load_model
+from inference import predict, load_clip
 from fastapi.middleware.cors import CORSMiddleware
 import time
+import json
+from pathlib import Path
 
 app = FastAPI()
 
@@ -18,19 +20,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cargar modelo al arrancar
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+CONFIG_PATH = MODELS_DIR / "config.json"
+
 @app.on_event("startup")
 async def startup_event():
-    load_model()
+    # Pre-cargamos CLIP
+    load_clip()
 
 class PredictRequest(BaseModel):
     urls: List[str]
+    model_id: str
+
+@app.get("/models")
+async def get_models():
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            config_data = json.load(f)
+        return config_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo configuración de modelos: {str(e)}")
 
 @app.post("/predict")
 async def get_prediction(request: PredictRequest):
     if not request.urls:
-        raise HTTPException(status_code=400, detail="No URLs provided")
-    
+        raise HTTPException(status_code=400, detail="No se han recibido URLs")
+    if not request.model_id:
+        raise HTTPException(status_code=400, detail="No se ha especificado un modelo")
+        
     images = []
     # Intentar extraer coordenadas reales de la primera URL si es posible
     true_lat, true_lng = None, None
@@ -66,11 +83,11 @@ async def get_prediction(request: PredictRequest):
             
             images.append(img)
             
-        print("Ejecutando inferencia")
+        print(f"Ejecutando inferencia con modelo {request.model_id}")
         start_time = time.time()
         
         true_coords = {"lat": true_lat, "lng": true_lng} if true_lat is not None else None
-        result = predict(images, true_coords=true_coords)
+        result = predict(images, model_id=request.model_id, true_coords=true_coords)
         
         duration = time.time() - start_time
         print(f"Predicción realizada en {duration:.2f}s: {result}")

@@ -1,18 +1,20 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import open_clip
 import pickle
 import s2sphere
 from PIL import Image
 import os
+import json
 from pathlib import Path
 from torchvision import transforms
+import math
 
 # Configuración
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
-MODEL_HEAD_PATH = MODELS_DIR / "checkpoints_model_multi/best_model_multi.pth"
-MAP_PATH = MODELS_DIR / "s2_class_map_multi.pkl"
+CONFIG_PATH = MODELS_DIR / "config.json"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 print(f"Iniciando sistema de predicción en {DEVICE}")
@@ -45,101 +47,130 @@ class MultiCropTransform:
 
 custom_transform = MultiCropTransform()
 
-# Variables globales para mantener el modelo
+# Global CLIP backbone
 backbone = None
-head = None
-idx_to_cell_l4 = None
-num_classes_l4 = None
-idx_to_cell_l7 = None
-num_classes_l7 = None
-idx_to_cell_l10 = None
-num_classes_l10 = None
-l10_to_l4_idx = None  # Lista que mapea el índice L10 a su índice L4 correspondiente
 
-def load_model():
-    global backbone, head
-    global idx_to_cell_l4, num_classes_l4, idx_to_cell_l7, num_classes_l7, idx_to_cell_l10, num_classes_l10, l10_to_l4_idx
+# Model Cache
+loaded_models = {}
+
+class GeoGuessrMultiHead(nn.Module):
+    def __init__(self, num_classes_l4, num_classes_l7, num_classes_l10, input_dim=512, hidden_dim=1024):
+        super().__init__()
+        self.tronco = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3)
+        )
+        self.cabeza_l4 = nn.Linear(hidden_dim, num_classes_l4)
+        self.cabeza_l7 = nn.Linear(hidden_dim, num_classes_l7)
+        self.cabeza_l10 = nn.Linear(hidden_dim, num_classes_l10)
+
+    def forward(self, x):
+        features = self.tronco(x)
+        return self.cabeza_l4(features), self.cabeza_l7(features), self.cabeza_l10(features)
+
+
+
+def load_clip():
+    global backbone
+    if backbone is None:
+        print("Cargando CLIP (ViT-B-32)")
+        backbone, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+        backbone.to(DEVICE)
+        backbone.eval()
+
+def load_model(model_id: str):
+    global loaded_models
     
-    if backbone is not None:
-        return
-
-    # Cargar mapa de clases
-    print("Cargando mapa de clases")
-    if not MAP_PATH.exists():
-        raise FileNotFoundError(f"Mapa de clases no encontrado en {MAP_PATH}")
+    if model_id in loaded_models:
+        return loaded_models[model_id]
         
-    with open(MAP_PATH, "rb") as f:
+    with open(CONFIG_PATH, "r") as f:
+        config_data = json.load(f)
+        
+    if model_id not in config_data:
+        raise ValueError(f"Modelo {model_id} no encontrado en config.json")
+        
+    model_info = config_data[model_id]
+    m_type = model_info["type"]
+    map_path = MODELS_DIR / model_info["map_path"]
+    weights_path = MODELS_DIR / model_info["weights_path"]
+    
+    if not map_path.exists():
+        raise FileNotFoundError(f"Mapa no encontrado: {map_path}")
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Pesos no encontrados: {weights_path}")
+        
+    with open(map_path, "rb") as f:
         map_data = pickle.load(f)
-    
-    idx_to_cell_l4 = {v: k for k, v in map_data["L4"]["cell_to_idx"].items()}
-    num_classes_l4 = map_data["L4"]["total_cells"]
-    idx_to_cell_l7 = {v: k for k, v in map_data["L7"]["cell_to_idx"].items()}
-    num_classes_l7 = map_data["L7"]["total_cells"]
-    idx_to_cell_l10 = {v: k for k, v in map_data["L10"]["cell_to_idx"].items()}
-    num_classes_l10 = map_data["L10"]["total_cells"]
-
-    # Precalcular mapa jerárquico L10 -> L4 para probabilidad conjunta
-    print("Precalculando relaciones jerárquicas L10 -> L4")
-    l10_to_l4_idx = []
-    
-    # Crear una lista rápida de celdas L4
-    cells_l4 = [s2sphere.CellId.from_token(idx_to_cell_l4[i]) for i in range(num_classes_l4)]
-    
-    for j in range(num_classes_l10):
-        token_l10 = idx_to_cell_l10[j]
-        cell_l10 = s2sphere.CellId.from_token(token_l10)
-        found_parent = -1
-        # Buscar qué L4 lo contiene
-        for i, cell_l4 in enumerate(cells_l4):
-            if cell_l4.contains(cell_l10):
-                found_parent = i
-                break
         
-        # Si por algún motivo matemático no encaja perfecto (bordes), asignamos el L4 más cercano o un neutro?
-        # Para evitar cuelgues, si found_parent es -1 (no debería pasar), lo dejamos en 0.
-        if found_parent == -1:
-            found_parent = 0
+    model_context = {"type": m_type}
+    
+    if m_type == "multi_head":
+        idx_to_cell_l4 = {v: k for k, v in map_data["L4"]["cell_to_idx"].items()}
+        num_classes_l4 = map_data["L4"]["total_cells"]
+        idx_to_cell_l7 = {v: k for k, v in map_data["L7"]["cell_to_idx"].items()}
+        num_classes_l7 = map_data["L7"]["total_cells"]
+        idx_to_cell_l10 = {v: k for k, v in map_data["L10"]["cell_to_idx"].items()}
+        num_classes_l10 = map_data["L10"]["total_cells"]
+        
+        l10_to_l4_idx = []
+        cells_l4 = [s2sphere.CellId.from_token(idx_to_cell_l4[i]) for i in range(num_classes_l4)]
+        for j in range(num_classes_l10):
+            token_l10 = idx_to_cell_l10[j]
+            cell_l10 = s2sphere.CellId.from_token(token_l10)
+            found_parent = -1
+            for i, cell_l4 in enumerate(cells_l4):
+                if cell_l4.contains(cell_l10):
+                    found_parent = i
+                    break
+            if found_parent == -1:
+                found_parent = 0
+            l10_to_l4_idx.append(found_parent)
             
-        l10_to_l4_idx.append(found_parent)
+        head = GeoGuessrMultiHead(num_classes_l4, num_classes_l7, num_classes_l10)
+        
+        model_context.update({
+            "head": head,
+            "idx_to_cell_l10": idx_to_cell_l10,
+            "num_classes_l10": num_classes_l10,
+            "l10_to_l4_idx": l10_to_l4_idx
+        })
+        
+    elif m_type == "uni_head":
+        if isinstance(map_data, dict):
+            if "cell_to_idx" in map_data:
+                idx_to_cell = {v: k for k, v in map_data["cell_to_idx"].items()}
+                num_classes = map_data["total_cells"]
+            else:
+                level_key = next((k for k in map_data.keys() if isinstance(k, str) and k.startswith("L") and isinstance(map_data[k], dict)), None)
+                if level_key and "cell_to_idx" in map_data[level_key]:
+                    idx_to_cell = {v: k for k, v in map_data[level_key]["cell_to_idx"].items()}
+                    num_classes = map_data[level_key]["total_cells"]
+                else:
+                    idx_to_cell = {i: token for i, token in enumerate(map_data.keys())}
+                    num_classes = len(map_data)
+        else:
+             idx_to_cell = {i: token for i, token in enumerate(map_data)}
+             num_classes = len(map_data)
+             
+        head = nn.Sequential(
+            nn.Linear(512, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(1024, num_classes)
+        )        
+        model_context.update({
+            "head": head,
+            "idx_to_cell": idx_to_cell,
+            "num_classes": num_classes
+        })
+    else:
+        raise ValueError(f"Tipo de modelo desconocido: {m_type}")
 
-    # Cargar CLIP
-    print("Cargando CLIP (ViT-B-32)")
-    backbone, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
-    backbone.to(DEVICE)
-    backbone.eval()
-
-    # Cargar modelo entrenado
-    print("Cargando modelo entrenado")
-    import torch.nn as nn
-    class GeoGuessrMultiHead(nn.Module):
-        def __init__(self, input_dim=512, hidden_dim=1024):
-            super().__init__()
-            self.tronco = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
-                nn.BatchNorm1d(hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(0.3)
-            )
-            self.cabeza_l4 = nn.Linear(hidden_dim, num_classes_l4)
-            self.cabeza_l7 = nn.Linear(hidden_dim, num_classes_l7)
-            self.cabeza_l10 = nn.Linear(hidden_dim, num_classes_l10)
-
-        def forward(self, x):
-            features = self.tronco(x)
-            return self.cabeza_l4(features), self.cabeza_l7(features), self.cabeza_l10(features)
-
-    head = GeoGuessrMultiHead()
-    
-    if not MODEL_HEAD_PATH.exists():
-         raise FileNotFoundError(f"Modelo entrenado no encontrado en {MODEL_HEAD_PATH}")
-
-    # El state_dict guardado parece tener "net.X" o haber sido guardado desde una clase.
-    # Si las llaves empiezan con "net.", pero head es un Sequential directo,
-    # necesitamos ajustar las llaves del state_dict o cargar en una clase igual.
-    state_dict = torch.load(MODEL_HEAD_PATH, map_location=DEVICE)
-    
-    # Adaptar las llaves si tienen prefijo "net." pero nuestro mdulo es un Sequential directo,
-    # donde las llaves esperadas son "0.weight", "1.weight", etc.
+    state_dict = torch.load(weights_path, map_location=DEVICE)
     new_state_dict = {}
     for k, v in state_dict.items():
         if k.startswith("net."):
@@ -151,9 +182,9 @@ def load_model():
     head.load_state_dict(new_state_dict)
     head.to(DEVICE)
     head.eval()
-    print("Modelo cargado exitosamente")
-
-import math
+    
+    loaded_models[model_id] = model_context
+    return model_context
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 # Radio de la Tierra en km
@@ -164,18 +195,11 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.asin(math.sqrt(a))
     return R * c
 
-def predict(images: list[Image.Image], top_k=5, true_coords=None):
-    """
-    Predice la ubicación para una lista de imágenes.
-    Devuelve la predicción con la mayor confianza entre todas las imágenes,
-    junto con las top k ubicaciones candidatas de esa mejor imagen.
-    Devuelve { 
-        "best": {lat: float, lng: float, confidence: float},
-        "top_5": [ {lat: float, lng: float, confidence: float}, ... ]
-    }
-    """
-    if not backbone:
-        load_model()
+def predict(images: list[Image.Image], model_id: str, top_k=5, true_coords=None):
+    load_clip()
+    model_ctx = load_model(model_id)
+    head = model_ctx["head"]
+    m_type = model_ctx["type"]
     
     best_top_k_preds = []
     best_confidence = -1.0
@@ -197,32 +221,27 @@ def predict(images: list[Image.Image], top_k=5, true_coords=None):
             # Pasamos flotantes puros al modelo MultiHead
             features = features.float()
             
-            out_l4, out_l7, out_l10 = head(features)
-            probs_l4 = F.softmax(out_l4, dim=1)
-            
-            # Determinar el país ganador (L4)
-            top_prob_l4, top_idx_l4 = torch.max(probs_l4, 1)
-            current_best_conf = top_prob_l4.item()
-            winner_l4_idx = top_idx_l4.item()
-            
-            # Forzar que L10 solo pueda elegir ciudades del L4 ganador
-            # Clonamos los logits de L10 para no modificar el tensor original
-            masked_logits_l10 = out_l10.clone()
-            
-            # Crear máscara booleana: True para las ciudades que pertenecen al L4 ganador
-            valid_l10_mask = torch.tensor([l10_to_l4_idx[j] == winner_l4_idx for j in range(num_classes_l10)], device=DEVICE)
-            
-            # Poner -infinito en los logits de las ciudades que NO son del L4 ganador
-            masked_logits_l10[0, ~valid_l10_mask] = -float('inf')
-            
-            # Aplicar Softmax solo sobre las ciudades válidas (las inválidas tendrán prob = 0.0)
-            filtered_probs_l10 = F.softmax(masked_logits_l10, dim=1)
+            if m_type == "multi_head":
+                out_l4, out_l7, out_l10 = head(features)
+                probs_l4 = F.softmax(out_l4, dim=1)
+                top_prob_l4, top_idx_l4 = torch.max(probs_l4, 1)
+                current_best_conf = top_prob_l4.item()
+                winner_l4_idx = top_idx_l4.item()
                 
-            # Obtener las top K predicciones
-            top_probs, top_indices = torch.topk(filtered_probs_l10, top_k)
+                masked_logits_l10 = out_l10.clone()
+                valid_l10_mask = torch.tensor([model_ctx["l10_to_l4_idx"][j] == winner_l4_idx for j in range(model_ctx["num_classes_l10"])], device=DEVICE)
+                masked_logits_l10[0, ~valid_l10_mask] = -float('inf')
+                filtered_probs_l10 = F.softmax(masked_logits_l10, dim=1)
+                top_probs, top_indices = torch.topk(filtered_probs_l10, top_k)
+                idx_map = model_ctx["idx_to_cell_l10"]
+                
+            elif m_type == "uni_head":
+                out = head(features)
+                probs = F.softmax(out, dim=1)
+                top_probs, top_indices = torch.topk(probs, top_k)
+                current_best_conf = top_probs[0][0].item()
+                idx_map = model_ctx["idx_to_cell"]
             
-            print(f"Imagen {i+1}: Confianza País (L4) {current_best_conf:.4f} | Ciudad Top 1 prob relativa: {top_probs[0][0].item():.4f}")
-
             if current_best_conf > best_confidence:
                 best_confidence = current_best_conf
                 
@@ -232,29 +251,24 @@ def predict(images: list[Image.Image], top_k=5, true_coords=None):
                     conf = top_probs[0][j].item()
                     idx = top_indices[0][j].item()
                     
-                    # Traducir ID -> S2 Token -> Lat/Lon
-                    token = idx_to_cell_l10[idx]
+                    token = idx_map[idx]
                     cell_id = s2sphere.CellId.from_token(token)
                     lat_lng = cell_id.to_lat_lng()
-                    lat = lat_lng.lat().degrees
-                    lng = lat_lng.lng().degrees
                     
                     current_top_preds.append({
-                        "lat": lat,
-                        "lng": lng,
+                        "lat": lat_lng.lat().degrees,
+                        "lng": lat_lng.lng().degrees,
                         "confidence": conf
                     })
-                
                 best_top_k_preds = current_top_preds
 
-    # El primer elemento en best_top_k_preds es el "mejor"
     best_prediction = best_top_k_preds[0] if best_top_k_preds else None
     
     if true_coords and best_prediction:
         dist_km = haversine(true_coords['lat'], true_coords['lng'], best_prediction['lat'], best_prediction['lng'])
-        print(f"Mejor predicción seleccionada con confianza: {best_confidence:.4f} (Error: {dist_km:.2f} km)")
+        print(f"Mejor predicción ({model_id}) con confianza: {best_confidence:.4f} (Error: {dist_km:.2f} km)")
     else:
-        print(f"Mejor predicción seleccionada con confianza: {best_confidence:.4f} (Error: Desconocido)")
+        print(f"Mejor predicción ({model_id}) con confianza: {best_confidence:.4f} (Error: Desconocido)")
     
     return {
         "best": best_prediction,
