@@ -5,11 +5,11 @@ import open_clip
 import pickle
 import s2sphere
 from PIL import Image
-import os
 import json
 from pathlib import Path
 from torchvision import transforms
 import math
+import gc
 
 # Configuración
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -183,6 +183,23 @@ def load_model(model_id: str):
     head.to(DEVICE)
     head.eval()
     
+    # Gestión de memoria: mantener máximo 2 modelos concurrentes
+    if len(loaded_models) >= 2:
+        oldest_model_id = next(iter(loaded_models))
+        print(f"Liberando memoria, expulsando modelo antiguo '{oldest_model_id}'")
+        
+        # Eliminar las referencias al modelo antiguo
+        old_context = loaded_models.pop(oldest_model_id)
+        del old_context["head"]
+        del old_context
+        
+        # Forzar recolector de basura de Python
+        gc.collect()
+        
+        # Vaciar caché de la GPU si está disponible
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
     loaded_models[model_id] = model_context
     return model_context
 
