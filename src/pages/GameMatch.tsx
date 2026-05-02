@@ -35,7 +35,8 @@ export default function GameMatch() {
         player1TotalScore,
         player2TotalScore,
         timeLeft,
-        matchWinner
+        matchWinner,
+        handlePanoChange
     } = useGameLogic(isLoaded, gameMode, model1Id, model2Id);
 
     const handleExit = () => {
@@ -86,6 +87,7 @@ export default function GameMatch() {
             <StreetView
                 panoId={panoId}
                 isLoaded={isLoaded}
+                onPanoChanged={handlePanoChange}
             />
 
             {result && (

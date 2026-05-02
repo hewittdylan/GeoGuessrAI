@@ -26,6 +26,7 @@ interface UseGameLogicReturn extends GameState {
     handleNextRound: () => void;
     debugUrls: string[];
     top5Predictions: any[];
+    handlePanoChange: (newPanoId: string) => void;
 }
 
 const STARTING_HEALTH = 10000;
@@ -48,78 +49,95 @@ export const useGameLogic = (
     const [aiGuess1, setAiGuess1] = useState<google.maps.LatLngLiteral | null>(null);
     const [aiGuess2, setAiGuess2] = useState<google.maps.LatLngLiteral | null>(null);
 
+    const aiConfidence1 = useRef<number>(-1);
+    const aiConfidence2 = useRef<number>(-1);
+
     const [debugUrls, setDebugUrls] = useState<string[]>([]);
     const [top5Predictions, setTop5Predictions] = useState<any[]>([]);
-
-    // Predicción del backend
-    useEffect(() => {
-        if (!panoId || !import.meta.env.VITE_GOOGLE_MAPS_KEY) return;
-
-        const fetchAiPrediction = async () => {
-            // Añadimos la ubicación para que el backend pueda calcular el error de distancia
-            let locationParams = "";
-            if (actualLocation) {
-                locationParams = `&location=${actualLocation.lat},${actualLocation.lng}`;
-            }
-
-            const urls = [0, 90, 180, 270].map(heading => getStreetViewStaticUrl({
-                panoId,
-                heading,
-                pitch: 0,
-                fov: 90,
-                apiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
-                width: 640,
-                height: 680
-            }) + locationParams);
-
-            setDebugUrls(urls);
-
-            try {
-                // Jugador 2 (IA)
-                if (model2Id) {
-                    const res2 = await fetch('http://localhost:8000/predict', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ urls, model_id: model2Id })
-                    });
-                    if (res2.ok) {
-                        const data2 = await res2.json();
-                        if (data2.best) {
-                            setAiGuess2(data2.best);
-                            setTop5Predictions(data2.top_5 || []);
-                            console.log("Predicción de IA 2 recibida", data2);
-                        }
-                    }
-                }
-
-                // Jugador 1 (Solo si es IA vs IA)
-                if (gameMode === 'ai_vs_ai' && model1Id) {
-                    const res1 = await fetch('http://localhost:8000/predict', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ urls, model_id: model1Id })
-                    });
-                    if (res1.ok) {
-                        const data1 = await res1.json();
-                        if (data1.best) {
-                            setAiGuess1(data1.best);
-                            console.log("Predicción de IA 1 recibida", data1);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error("Error al obtener la predicción de IA:", error);
-            }
-        };
-
-        fetchAiPrediction();
-    }, [panoId, actualLocation, gameMode, model1Id, model2Id]);
 
     // Estado competitivo
     const [player1TotalScore, setPlayer1TotalScore] = useState(STARTING_HEALTH);
     const [player2TotalScore, setPlayer2TotalScore] = useState(STARTING_HEALTH);
     const [timeLeft, setTimeLeft] = useState(ROUND_TIME);
     const [matchWinner, setMatchWinner] = useState<'player1' | 'player2' | null>(null);
+
+    // Predicción del backend
+    useEffect(() => {
+        if (!panoId || !import.meta.env.VITE_GOOGLE_MAPS_KEY || result || matchWinner) return;
+
+        let isCancelled = false;
+
+        const timeoutId = setTimeout(() => {
+            const fetchAiPrediction = async () => {
+                // Añadimos la ubicación para que el backend pueda calcular el error de distancia
+                let locationParams = "";
+                if (actualLocation) {
+                    locationParams = `&location=${actualLocation.lat},${actualLocation.lng}`;
+                }
+
+                const urls = [0, 90, 180, 270].map(heading => getStreetViewStaticUrl({
+                    panoId,
+                    heading,
+                    pitch: 0,
+                    fov: 90,
+                    apiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
+                    width: 640,
+                    height: 680
+                }) + locationParams);
+
+                setDebugUrls(urls);
+
+                try {
+                    // Jugador 2 (IA)
+                    if (model2Id) {
+                        const res2 = await fetch('http://localhost:8000/predict', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ urls, model_id: model2Id })
+                        });
+                        if (res2.ok && !isCancelled) {
+                            const data2 = await res2.json();
+                            if (data2.best && data2.best.confidence > aiConfidence2.current) {
+                                setAiGuess2(data2.best);
+                                aiConfidence2.current = data2.best.confidence;
+                                setTop5Predictions(data2.top_5 || []);
+                                console.log("Predicción de IA 2 actualizada (mejor confianza)", data2.best.confidence);
+                            }
+                        }
+                    }
+
+                    // Jugador 1 (Solo si es IA vs IA)
+                    if (gameMode === 'ai_vs_ai' && model1Id) {
+                        const res1 = await fetch('http://localhost:8000/predict', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ urls, model_id: model1Id })
+                        });
+                        if (res1.ok && !isCancelled) {
+                            const data1 = await res1.json();
+                            if (data1.best && data1.best.confidence > aiConfidence1.current) {
+                                setAiGuess1(data1.best);
+                                aiConfidence1.current = data1.best.confidence;
+                                console.log("Predicción de IA 1 actualizada (mejor confianza)", data1.best.confidence);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    if (!isCancelled) {
+                        console.error("Error al obtener la predicción de IA:", error);
+                    }
+                }
+            };
+
+            fetchAiPrediction();
+        }, 500);  // Espera a que el jugador deje de moverse durante 500ms antes de pedir la predicción
+
+        return () => {
+            isCancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [panoId, actualLocation, gameMode, model1Id, model2Id, result, matchWinner]);
+
 
     // Referencias para el temporizador
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -331,6 +349,8 @@ export const useGameLogic = (
         setTilesLoaded(false);
         setAiGuess1(null);
         setAiGuess2(null);
+        aiConfidence1.current = -1;
+        aiConfidence2.current = -1;
         setTop5Predictions([]);
         setDebugUrls([]);
         findRandomLocation();
@@ -353,6 +373,9 @@ export const useGameLogic = (
         aiGuess2,
         debugUrls,
         top5Predictions,
+        handlePanoChange: (newPano: string) => {
+            if (!result && !matchWinner) setPanoId(newPano);
+        },
         setTilesLoaded,
         setPlayer1Guess,
         handleMapClick,
