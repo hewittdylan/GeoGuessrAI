@@ -8,6 +8,7 @@ from PIL import Image
 import json
 from pathlib import Path
 from torchvision import transforms
+import torchvision.models as tv_models
 import math
 import gc
 
@@ -19,13 +20,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 print(f"Iniciando sistema de predicción en {DEVICE}")
 
-# Transformación Multi-Crop idéntica a extraer_features.py para que el modelo reciba lo mismo que en el entrenamiento
+# Transformación Multi-Crop
 class MultiCropTransform:
-    def __init__(self):
-        self.normalize = transforms.Normalize(
-            mean=(0.48145466, 0.4578275, 0.40821073), 
-            std=(0.26862954, 0.26130258, 0.27577711)
-        )
+    def __init__(self, mean, std):
+        self.normalize = transforms.Normalize(mean=mean, std=std)
         self.to_tensor = transforms.ToTensor()
         self.resize_height = 224
 
@@ -45,10 +43,12 @@ class MultiCropTransform:
         tensors = [self.normalize(self.to_tensor(crop)) for crop in crops]
         return torch.stack(tensors)
 
-custom_transform = MultiCropTransform()
+clip_transform = MultiCropTransform(mean=(0.48145466, 0.4578275, 0.40821073), std=(0.26862954, 0.26130258, 0.27577711))
+resnet_transform = MultiCropTransform(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
-# Global CLIP backbone
-backbone = None
+# Global backbones
+clip_backbone = None
+resnet_backbone = None
 
 # Model Cache
 loaded_models = {}
@@ -73,12 +73,21 @@ class GeoGuessrMultiHead(nn.Module):
 
 
 def load_clip():
-    global backbone
-    if backbone is None:
+    global clip_backbone
+    if clip_backbone is None:
         print("Cargando CLIP (ViT-B-32)")
-        backbone, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
-        backbone.to(DEVICE)
-        backbone.eval()
+        clip_backbone, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+        clip_backbone.to(DEVICE)
+        clip_backbone.eval()
+
+def load_resnet():
+    global resnet_backbone
+    if resnet_backbone is None:
+        print("Cargando ResNet50 Backbone")
+        resnet = tv_models.resnet50(weights=tv_models.ResNet50_Weights.IMAGENET1K_V2)
+        resnet_backbone = nn.Sequential(*list(resnet.children())[:-1], nn.Flatten())
+        resnet_backbone.to(DEVICE)
+        resnet_backbone.eval()
 
 def load_model(model_id: str):
     global loaded_models
@@ -94,8 +103,10 @@ def load_model(model_id: str):
         
     model_info = config_data[model_id]
     m_type = model_info["type"]
-    map_path = MODELS_DIR / model_info["map_path"]
-    weights_path = MODELS_DIR / model_info["weights_path"]
+    backbone_type = model_info.get("backbone", "clip")
+    input_dim = 2048 if backbone_type == "resnet50" else 512
+    map_path = BASE_DIR / model_info["map_path"]
+    weights_path = BASE_DIR / model_info["weights_path"]
     
     if not map_path.exists():
         raise FileNotFoundError(f"Mapa no encontrado: {map_path}")
@@ -105,7 +116,7 @@ def load_model(model_id: str):
     with open(map_path, "rb") as f:
         map_data = pickle.load(f)
         
-    model_context = {"type": m_type}
+    model_context = {"type": m_type, "backbone": backbone_type}
     
     if m_type == "multi_head":
         idx_to_cell_l4 = {v: k for k, v in map_data["L4"]["cell_to_idx"].items()}
@@ -129,7 +140,7 @@ def load_model(model_id: str):
                 found_parent = 0
             l10_to_l4_idx.append(found_parent)
             
-        head = GeoGuessrMultiHead(num_classes_l4, num_classes_l7, num_classes_l10)
+        head = GeoGuessrMultiHead(num_classes_l4, num_classes_l7, num_classes_l10, input_dim=input_dim)
         
         model_context.update({
             "head": head,
@@ -156,7 +167,7 @@ def load_model(model_id: str):
              num_classes = len(map_data)
              
         head = nn.Sequential(
-            nn.Linear(512, 1024),
+            nn.Linear(input_dim, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.3),
@@ -213,10 +224,19 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 def predict(images: list[Image.Image], model_id: str, top_k=5, true_coords=None):
-    load_clip()
     model_ctx = load_model(model_id)
     head = model_ctx["head"]
     m_type = model_ctx["type"]
+    backbone_type = model_ctx["backbone"]
+    
+    if backbone_type == "resnet50":
+        load_resnet()
+        active_backbone = resnet_backbone
+        active_transform = resnet_transform
+    else:
+        load_clip()
+        active_backbone = clip_backbone
+        active_transform = clip_transform
     
     best_top_k_preds = []
     best_confidence = -1.0
@@ -224,11 +244,14 @@ def predict(images: list[Image.Image], model_id: str, top_k=5, true_coords=None)
     for i, img in enumerate(images):
         img = img.convert("RGB")
         # Generamos los 3 recortes: shape (3, 3, 224, 224)
-        crops_tensor = custom_transform(img).to(DEVICE)
+        crops_tensor = active_transform(img).to(DEVICE)
 
         with torch.no_grad():
-            # Codificamos las 3 imágenes (3, 512)
-            c_features = backbone.encode_image(crops_tensor)
+            if backbone_type == "clip":
+                c_features = active_backbone.encode_image(crops_tensor)
+            else:
+                c_features = active_backbone(crops_tensor)
+                
             c_features /= c_features.norm(dim=-1, keepdim=True)
             
             # Promediamos y re-normalizamos (1, 512)
